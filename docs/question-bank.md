@@ -17,9 +17,11 @@ Each run draws one question uniformly from each level, in order. Selections and 
 
 There are 346 supplied questions. Missing questions are not invented. Numeric years are displayed as text; the percentage options in Level 7 row 2 retain their Excel percentage formatting.
 
-The **Correct option** letter is used as supplied, including when **Correct answer** differs. The selected option text is the displayed correct answer. The workbook has no separate explanations, so the existing feedback dialog uses its generic correct-answer message. The old Abbott explanations are not reused for unrelated Urban Mobility questions. Evidence-source entries are not treated as explanations.
+The **Correct option** letter is used as supplied, including when **Correct answer** differs. The selected option text is the displayed correct answer. The workbook has no separate explanations. The game now shows the selected answer in green or red for two seconds, then advances or ends the run without an explanation popup. Evidence-source entries are not treated as explanations.
 
 ## Answer-key rows requiring review
+
+Approved correction: Level 3 questions 38 and 39 (Excel rows 39 and 40) had their option sets exchanged. The app now assigns the city choices to the Superblocks question (D: Barcelona) and the time choices to the transfer-time question (A, clarified as time changing services including walking and waiting). All other imported questions remain unchanged; the original workbook is unchanged.
 
 These differences are recorded without silently changing the supplied key. Some are equivalent wording; others appear to be stale content or conflicting keys. In particular, Level 5 question 16 marks D, while its question and option B describe emissions per passenger-distance.
 

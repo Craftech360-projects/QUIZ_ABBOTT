@@ -91,13 +91,6 @@ export function useQuizSocket({ operator = false } = {}) {
     emitAction('lock_answer');
   }, [emitAction]);
 
-  const continueFeedback = useCallback(() => {
-    emitAction('continue_feedback', {
-      sessionId: quizState?.sessionId,
-      questionId: quizState?.questions?.[quizState.questionIndex]?.id,
-    });
-  }, [emitAction, quizState]);
-
   const requestOperatorAnswer = useCallback((payload) => new Promise((resolve, reject) => {
     if (!operator || !socketRef.current?.connected) {
       reject(new Error('Connect to the operator screen to view the answer.'));
@@ -168,7 +161,6 @@ export function useQuizSocket({ operator = false } = {}) {
     showOptions,
     goBack,
     lockAnswer,
-    continueFeedback,
     requestOperatorAnswer,
     useLifeline,
     dismissLifeline,

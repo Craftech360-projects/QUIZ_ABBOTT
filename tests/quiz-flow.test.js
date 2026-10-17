@@ -129,8 +129,7 @@ async function startServer({
   stateFile,
   resultsFile,
   sessionHistoryFile,
-  feedbackRevealDelayMs = 5,
-  feedbackDelayMs = 100,
+  answerRevealDurationMs = 100,
   questionDurationMs = 45000,
   optionRevealIntervalMs = 5,
   resultsStorage = 'csv',
@@ -148,8 +147,7 @@ async function startServer({
       RESULTS_FILE: resultsFile,
       RESULTS_STORAGE: resultsStorage,
       PENDING_RESULTS_FILE: path.join(path.dirname(stateFile), 'pending-results.json'),
-      FEEDBACK_REVEAL_DELAY_MS: String(feedbackRevealDelayMs),
-      FEEDBACK_DELAY_MS: String(feedbackDelayMs),
+      ANSWER_REVEAL_DURATION_MS: answerRevealDurationMs == null ? '' : String(answerRevealDurationMs),
       QUESTION_DURATION_MS: String(questionDurationMs),
       OPTION_REVEAL_INTERVAL_MS: String(optionRevealIntervalMs),
       REGISTRATION_IDLE_TIMEOUT_MS: '10000',
@@ -228,13 +226,12 @@ async function answerCurrentLevel({ correct, correctAnswers, operator, tracker }
   assert.equal((await emitAction(operator, 'select_option', { optionId })).ok, true);
   await tracker.waitFor((next) => next.phase === 'confirming' && next.selectedOption === optionId);
   assert.equal((await emitAction(operator, 'lock_answer')).ok, true);
-  const feedback = await tracker.waitFor((next) => next.phase === 'feedback' && next.questionIndex === state.questionIndex);
+  const feedback = await tracker.waitFor((next) => next.phase === 'locked' && next.questionIndex === state.questionIndex);
   const revealedQuestion = feedback.questions[state.questionIndex];
   assert.deepEqual(revealedQuestion.correctOptionIds, [correctOptionId]);
-  assert.equal(revealedQuestion.explanation, questions.find((entry) => entry.id === question.id).explanation,
-    'Feedback must preserve supplied explanations without inventing missing ones');
-  assert.ok(feedback.questions.every((entry, index) => index === state.questionIndex || !('explanation' in entry)),
-    'Explanations for other questions must remain hidden');
+  assert.equal(feedback.feedbackVisible, false);
+  assert.ok(feedback.questions.every((entry) => !('explanation' in entry)),
+    'No explanation should be sent during the colour reveal');
   return optionId;
 }
 
@@ -268,7 +265,7 @@ test('operator reveals shared options, persists progress, and each next question
   const options = {
     port: await getFreePort(), stateFile: path.join(directory, 'state.json'),
     resultsFile: path.join(directory, 'results.csv'), sessionHistoryFile: path.join(directory, 'sessions.jsonl'),
-    optionRevealIntervalMs: 500, feedbackDelayMs: 10000,
+    optionRevealIntervalMs: 500,
   };
   let server = await startServer(options);
   let operator = await connectSocket(server.baseUrl, { operatorToken });
@@ -311,7 +308,7 @@ test('operator reveals shared options, persists progress, and each next question
   assert.equal((await emitAction(operator.socket, 'answer_back')).ok, true);
   assert.equal(operator.tracker.current.optionsRevealedAt, revealing.optionsRevealedAt);
   await answerCurrentLevel({ correct: true, correctAnswers: await loadCorrectAnswers(), operator: operator.socket, tracker: operator.tracker });
-  assert.equal((await emitAction(operator.socket, 'continue_feedback', payload)).ok, true);
+  assert.equal((await emitAction(operator.socket, 'continue_feedback', payload)).ok, false);
   const next = await operator.tracker.waitFor((entry) => entry.questionIndex === 1);
   const displayNext = await display.tracker.waitFor((entry) => entry.questionIndex === 1);
   assert.equal(next.optionsRevealedAt, null);
@@ -571,15 +568,14 @@ test('eight-level operator/display game flow, lifelines, outcomes, authorization
   assert.ok(archivedSessions.every((session) => session.answers.length > 0));
 });
 
-test('feedback buttons advance immediately, synchronize displays, and reject duplicate or stale clicks', async (t) => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'quiz-feedback-button-'));
+test('locked answers stay coloured for two seconds, skip explanation, and then advance or end', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'quiz-colour-reveal-'));
   const server = await startServer({
     port: await getFreePort(),
     stateFile: path.join(directory, 'state.json'),
     resultsFile: path.join(directory, 'results.csv'),
     sessionHistoryFile: path.join(directory, 'sessions.jsonl'),
-    feedbackRevealDelayMs: 30,
-    feedbackDelayMs: 10000,
+    answerRevealDurationMs: null, // Exercise the real two-second production default.
   });
   const operator = await connectSocket(server.baseUrl, { operatorToken });
   const display = await connectSocket(server.baseUrl);
@@ -588,38 +584,40 @@ test('feedback buttons advance immediately, synchronize displays, and reject dup
     display.socket.close();
     await stopServer(server.child);
   });
+  const phases = [];
+  display.socket.on('quiz_state', state => phases.push(state.phase));
   const correctAnswers = await loadCorrectAnswers();
-  const payloadFor = state => ({ sessionId: state.sessionId, questionId: state.questions[state.questionIndex].id });
-  await startRun(operator.socket, operator.tracker, 'Manual Advance');
-  assert.equal((await emitAction(operator.socket, 'continue_feedback', payloadFor(operator.tracker.current))).ok, false);
+  await startRun(operator.socket, operator.tracker, 'Colour Reveal');
 
-  let previousPayload;
-  for (let level = 0; level < 8; level++) {
-    await answerCurrentLevel({ correct: true, correctAnswers, operator: operator.socket, tracker: operator.tracker });
-    const feedback = operator.tracker.current;
-    const payload = payloadFor(feedback);
-    assert.equal((await emitAction(display.socket, 'continue_feedback', payload)).ok, false);
-    if (previousPayload) assert.equal((await emitAction(operator.socket, 'continue_feedback', previousPayload)).ok, false);
-    assert.ok(feedback.feedbackEndsAt > Date.now());
-    assert.equal((await emitAction(operator.socket, 'continue_feedback', payload)).ok, true);
-    const done = state => level === 7
-      ? state.status === 'finished' && state.outcome.type === 'champion'
-      : state.questionIndex === level + 1 && state.phase === 'answering';
-    await operator.tracker.waitFor(done, 1000);
-    await display.tracker.waitFor(done, 1000);
+  for (const correct of [true, false]) {
+    await answerCurrentLevel({ correct, correctAnswers, operator: operator.socket, tracker: operator.tracker });
+    const locked = operator.tracker.current;
+    const questionIndex = locked.questionIndex;
+    const displayLocked = await display.tracker.waitFor(state => state.phase === 'locked' && state.questionIndex === questionIndex);
+    assert.equal(locked.feedbackEndsAt - Date.parse(locked.answers.at(-1).lockedAt), 2000);
+    assert.equal(displayLocked.feedbackEndsAt, locked.feedbackEndsAt);
+    assert.equal(locked.questions[questionIndex].correctOptionIds.includes(locked.selectedOption), correct);
+    assert.equal(displayLocked.questions[questionIndex].correctOptionIds.includes(displayLocked.selectedOption), correct);
+    const payload = { sessionId: locked.sessionId, questionId: locked.questions[questionIndex].id };
     assert.equal((await emitAction(operator.socket, 'continue_feedback', payload)).ok, false);
-    previousPayload = payload;
+    assert.equal((await emitAction(operator.socket, 'lock_answer')).ok, false);
+    assert.equal((await emitAction(operator.socket, 'answer_back')).ok, false);
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    assert.equal(operator.tracker.current.phase, 'locked');
+    assert.equal(display.tracker.current.phase, 'locked');
+    const done = correct
+      ? state => state.phase === 'answering' && state.questionIndex === questionIndex + 1
+      : state => state.status === 'finished' && state.outcome.type === 'eliminated';
+    const next = await operator.tracker.waitFor(done, 1500);
+    await display.tracker.waitFor(done, 1500);
+    assert.ok(Date.now() >= locked.feedbackEndsAt, 'Must not advance before the colour reveal ends');
+    if (correct) assert.equal(next.optionsRevealedAt, null);
+    else {
+      assert.equal(next.completedLevel, 1);
+      assert.equal(next.answers.length, 2);
+    }
   }
-
-  assert.equal((await emitAction(operator.socket, 'restart')).ok, true);
-  await operator.tracker.waitFor(state => state.status === 'idle');
-  await startRun(operator.socket, operator.tracker, 'Manual Result');
-  await answerCurrentLevel({ correct: false, correctAnswers, operator: operator.socket, tracker: operator.tracker });
-  const payload = payloadFor(operator.tracker.current);
-  assert.equal((await emitAction(operator.socket, 'continue_feedback', payload)).ok, true);
-  const finished = state => state.status === 'finished' && state.outcome.type === 'eliminated';
-  await operator.tracker.waitFor(finished, 1000);
-  await display.tracker.waitFor(finished, 1000);
+  assert.ok(!phases.includes('feedback'), 'Never enter the old explanation-popup phase');
 });
 
 test('recovers confirming and locked phases without operator/display divergence', async (t) => {
@@ -634,8 +632,7 @@ test('recovers confirming and locked phases without operator/display divergence'
     stateFile,
     resultsFile,
     sessionHistoryFile,
-    feedbackRevealDelayMs: 1500,
-    feedbackDelayMs: 1500,
+    answerRevealDurationMs: 1500,
   };
   let server = await startServer(serverOptions);
   let operatorConnection = await connectSocket(server.baseUrl, { operatorToken });
@@ -678,11 +675,18 @@ test('recovers confirming and locked phases without operator/display divergence'
   assert.ok(!('explanation' in state.questions[0]));
   const lockedDisplay = await displayConnection.tracker.waitFor((next) => next.phase === 'locked');
   assert.deepEqual(lockedDisplay.questions[0].correctOptionIds, [optionId]);
-  assert.equal(state.feedbackEndsAt - state.feedbackRevealAt, serverOptions.feedbackDelayMs);
+  assert.equal(state.feedbackRevealAt, null);
+  assert.equal(state.feedbackEndsAt - Date.parse(state.answers.at(-1).lockedAt), serverOptions.answerRevealDurationMs);
 
   operatorConnection.socket.close();
   displayConnection.socket.close();
   await stopServer(server.child);
+  // Simulate a saved session from the former explanation-popup flow.
+  const legacyFeedback = JSON.parse(await readFile(stateFile, 'utf8'));
+  legacyFeedback.phase = 'feedback';
+  legacyFeedback.feedbackVisible = true;
+  legacyFeedback.feedbackEndsAt = Date.now() + 12000;
+  await writeFile(stateFile, JSON.stringify(legacyFeedback));
   server = await startServer(serverOptions);
   operatorConnection = await connectSocket(server.baseUrl, { operatorToken });
   displayConnection = await connectSocket(server.baseUrl);

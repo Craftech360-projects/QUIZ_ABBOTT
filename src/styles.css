@@ -2420,7 +2420,8 @@ tbody tr:last-child td {
 .event-screen {
   --event-navy: #211d58;
   --event-panel: #15123f;
-  --event-red: #c72127;
+  --event-red: #C72127;
+  --event-wrong: #FF000D;
   --event-green: #6aa142;
   --event-orange: #eca357;
   --event-selected: #eca357;
@@ -2612,18 +2613,6 @@ tbody tr:last-child td {
   content: "";
 }
 
-/* Cover the old countdown printed into Frame 1; the live question panel sits above this. */
-.event-game-screen::before {
-  content: "";
-  position: absolute;
-  left: 27%;
-  top: 10%;
-  width: 14%;
-  height: 8%;
-  background: #1e194e;
-  z-index: 1;
-}
-
 .event-question-panel {
   align-items: center;
   background: #15123f;
@@ -2659,7 +2648,7 @@ tbody tr:last-child td {
   display: grid;
   gap: 3.055cqh 1.15cqw;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  /* Keep both rows covered while 50:50 packs the surviving options into row one. */
+  /* Keep the layout steady while revealing options or using 50:50. */
   grid-template-rows: repeat(2, 8.6767cqh);
   left: 7%;
   position: absolute;
@@ -2669,11 +2658,11 @@ tbody tr:last-child td {
 }
 
 .event-show-options {
-  background: #fff;
+  background: var(--event-red);
   border: 2px solid #fff;
   border-radius: 10px;
   box-shadow: 0 6px 18px #0003;
-  color: #26336d;
+  color: #fff;
   font: inherit;
   font-size: clamp(1rem, 1.6vw, 2rem);
   padding: 0.75em 1.6em;
@@ -2698,17 +2687,6 @@ tbody tr:last-child td {
 @keyframes event-option-enter {
   from { opacity: 0; transform: translateY(18px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-/* Cover the option boxes baked into the reference image, including their shadows.
-   Otherwise 50:50 reveals those old answers when the live buttons are hidden. */
-.event-options-grid::before {
-  background: var(--event-panel);
-  content: "";
-  inset: -0.4cqh -0.8cqw -1.2cqh -0.2cqw;
-  pointer-events: none;
-  position: absolute;
-  z-index: -1;
 }
 
 .event-option {
@@ -2774,12 +2752,12 @@ tbody tr:last-child td {
 }
 
 .event-option.wrong {
-  background: var(--event-red);
+  background: var(--event-wrong);
   color: #fff;
 }
 
 .event-option.wrong .event-option-letter {
-  background: var(--event-red);
+  background: var(--event-wrong);
 }
 
 .event-option.answer-reveal {
@@ -3056,50 +3034,12 @@ tbody tr:last-child td {
   transform: translate(35%, -35%);
 }
 
-.event-feedback-dialog {
-  border-radius: 20px;
-  padding: 2.3% 4.3%;
-  width: 48.5%;
-}
-
-.event-feedback-dialog h2 {
-  font-weight: 700;
-  line-height: 1.15;
-  margin-bottom: 1.6cqw;
-}
-
-.event-feedback-dialog h3 {
-  font-size: clamp(1rem, 2.25vw, 2.7rem);
-  line-height: 1.16;
-  margin: 0 0 4%;
-}
-
-.event-feedback-dialog p {
-  font-size: clamp(1rem, 2.1vw, 2.625rem);
-  line-height: 1.25;
-  margin: 0 0 2cqw;
-  text-wrap: pretty;
-}
-
 .event-feedback-image {
   display: block;
   height: 15cqh;
   margin: 0 auto 3%;
   max-width: 100%;
   object-fit: contain;
-}
-
-.event-feedback-next {
-  background: var(--event-red);
-  border: 2px solid #fff;
-  border-radius: 8px;
-  color: #fff;
-  display: inline-flex;
-  font-size: clamp(0.72rem, 1.35vw, 1.6rem);
-  justify-content: center;
-  min-width: 45%;
-  padding: 0.7em 1em;
-  text-transform: uppercase;
 }
 
 .event-lifeline-dialog {
@@ -3446,12 +3386,7 @@ tbody tr:last-child td {
     padding: 28px 20px 40px;
   }
 
-  .event-game-screen::before {
-    display: none;
-  }
-
   .event-game-screen > .event-reference-layer {
-    opacity: 0;
     object-fit: cover;
   }
 

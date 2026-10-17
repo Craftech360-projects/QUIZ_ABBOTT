@@ -3438,31 +3438,6 @@ export const questions = [
     "options": [
       {
         "id": "a",
-        "text": "Time spent aboard while moving"
-      },
-      {
-        "id": "b",
-        "text": "Time waiting before boarding"
-      },
-      {
-        "id": "c",
-        "text": "Time walking between station platforms"
-      },
-      {
-        "id": "d",
-        "text": "Time buying a ticket before entry"
-      }
-    ],
-    "correctOptionId": "a",
-    "explanation": ""
-  },
-  {
-    "id": "umc-l3-r40",
-    "level": 3,
-    "text": "What is transfer time between connected services in a multimodal journey?",
-    "options": [
-      {
-        "id": "a",
         "text": "Copenhagen"
       },
       {
@@ -3479,6 +3454,31 @@ export const questions = [
       }
     ],
     "correctOptionId": "d",
+    "explanation": ""
+  },
+  {
+    "id": "umc-l3-r40",
+    "level": 3,
+    "text": "What is transfer time between connected services in a multimodal journey?",
+    "options": [
+      {
+        "id": "a",
+        "text": "Time spent changing services, including walking and waiting"
+      },
+      {
+        "id": "b",
+        "text": "Time waiting before boarding"
+      },
+      {
+        "id": "c",
+        "text": "Time walking between station platforms"
+      },
+      {
+        "id": "d",
+        "text": "Time buying a ticket before entry"
+      }
+    ],
+    "correctOptionId": "a",
     "explanation": ""
   },
   {

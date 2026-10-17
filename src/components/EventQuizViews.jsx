@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { questions, quizConfig } from '../data/questions.js';
+import { quizConfig } from '../data/questions.js';
 import { getSortedLeaderboard } from '../utils/storage.js';
 import { getVisibleOptionCount } from '../utils/optionReveal.js';
 
@@ -8,7 +8,7 @@ const CONFIRMATION_DIALOG_DELAY_MS = 1000;
 
 export const FIGMA_ASSETS = {
   start: `${PUBLIC_ASSET_ROOT}Start Screen.png`,
-  question: `${PUBLIC_ASSET_ROOT}Frame 1.png`,
+  question: `${PUBLIC_ASSET_ROOT}base.png`,
   correct: `${PUBLIC_ASSET_ROOT}Frame 2.png`,
   selected: `${PUBLIC_ASSET_ROOT}Frame 3.png`,
   wrong: `${PUBLIC_ASSET_ROOT}Frame 4.png`,
@@ -205,7 +205,6 @@ function useVisibleOptionCount(quizState) {
 }
 
 export function EventQuestionView({
-  continueFeedback,
   dismissLifeline,
   error = '',
   goBack,
@@ -224,12 +223,7 @@ export function EventQuestionView({
   const correctOptionIds = question.correctOptionIds || [];
   const eliminatedOptionIds = quizState.eliminatedOptionIds || [];
   const remainingOptions = question.options.filter((option) => !eliminatedOptionIds.includes(option.id));
-  const selectedIsCorrect = correctOptionIds.includes(quizState.selectedOption);
   const answerIsRevealed = ['locked', 'feedback'].includes(quizState.phase);
-  const correctOption = question.options.find((option) => correctOptionIds.includes(option.id));
-  const correctOptionIndex = remainingOptions.findIndex((option) => option.id === correctOption?.id);
-  const correctOptionLetter = correctOptionIndex >= 0 ? String.fromCharCode(65 + correctOptionIndex) : '';
-  const explanation = question.explanation || questions.find((entry) => entry.id === question.id)?.explanation;
   const controlsDisabled = !interactive || !isConnected || isPending;
   const visibleOptionCount = useVisibleOptionCount(quizState);
   const allOptionsVisible = visibleOptionCount === question.options.length;
@@ -350,28 +344,6 @@ export function EventQuestionView({
               <button disabled={isPending} onClick={lockAnswer} type="button">Lock Answer</button>
               <button className="secondary" disabled={isPending} onClick={goBack} type="button">Go Back</button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {quizState.phase === 'feedback' && (
-        <div className="event-modal-backdrop">
-          <div className="event-dialog event-feedback-dialog" role="status" aria-live="polite">
-            <h2>{correctOption
-              ? correctOption.image ? `Option ${correctOptionLetter}` : correctOption.text
-              : 'Correct answer'}</h2>
-            {correctOption?.image && (
-              <img className="event-feedback-image" src={correctOption.image} alt="Correct sensor application site" />
-            )}
-            <p>{explanation || (selectedIsCorrect ? 'That is the correct answer.' : 'This was the correct answer.')}</p>
-            <button
-              className="event-feedback-next"
-              disabled={controlsDisabled}
-              onClick={continueFeedback}
-              type="button"
-            >
-              {selectedIsCorrect && quizState.questionIndex < quizState.questions.length - 1 ? 'Next Question' : 'View Result'}
-            </button>
           </div>
         </div>
       )}

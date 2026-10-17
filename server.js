@@ -31,8 +31,7 @@ const io = new SocketIOServer(httpServer);
 const PORT = Number(process.env.PORT || 3002);
 const QUESTIONS_PER_RUN = quizConfig.questionCount;
 const LIFELINE_TYPES = ['audiencePoll', 'phoneAFriend', 'fiftyFifty'];
-const FEEDBACK_REVEAL_DELAY_MS = Number(process.env.FEEDBACK_REVEAL_DELAY_MS || 2000);
-const FEEDBACK_DELAY_MS = Number(process.env.FEEDBACK_DELAY_MS || 10000);
+const ANSWER_REVEAL_DURATION_MS = Math.max(1, Number(process.env.ANSWER_REVEAL_DURATION_MS) || 2000);
 const optionRevealIntervalMs = Math.max(1, Number(process.env.OPTION_REVEAL_INTERVAL_MS) || OPTION_REVEAL_INTERVAL_MS);
 const REGISTRATION_IDLE_TIMEOUT_MS = Number(process.env.REGISTRATION_IDLE_TIMEOUT_MS || 60000);
 const isProduction = process.argv.includes('--production');
@@ -103,7 +102,6 @@ const supabaseEnvironmentStatus = {
 let writeQueue = Promise.resolve();
 let stateWriteQueue = Promise.resolve();
 let statePersistenceError = null;
-let feedbackTimer = null;
 let advanceTimer = null;
 let registrationIdleTimer = null;
 const savedRunIds = new Set();
@@ -292,6 +290,15 @@ async function loadQuizState() {
         : null;
     }
 
+    // Resume the same two-second colour reveal, including sessions from the old popup flow.
+    if (restored.status === 'running' && ['locked', 'feedback'].includes(restored.phase)) {
+      const lockedAt = Date.parse(restored.answers.at(-1)?.lockedAt || '');
+      restored.phase = 'locked';
+      restored.feedbackVisible = false;
+      restored.feedbackRevealAt = null;
+      restored.feedbackEndsAt = (Number.isFinite(lockedAt) ? lockedAt : Date.now()) + ANSWER_REVEAL_DURATION_MS;
+    }
+
     // Old saved deadlines must not expire a game after the question limit was removed.
     restored.questionDeadline = null;
     restored.questionRemainingMs = null;
@@ -339,9 +346,7 @@ if (quizState.runId && quizState.resultSavedAt) {
 }
 
 function clearQuizTimers() {
-  clearTimeout(feedbackTimer);
   clearTimeout(advanceTimer);
-  feedbackTimer = null;
   advanceTimer = null;
 }
 
@@ -401,9 +406,6 @@ function createPublicQuizState() {
       return {
         ...publicQuestion,
         correctOptionIds: correctOptionIds(question),
-        ...(quizState.phase === 'feedback' ? {
-          explanation: question.explanation || questionBank.find((entry) => entry.id === question.id)?.explanation || '',
-        } : {}),
       };
     }
 
@@ -601,37 +603,14 @@ function advanceAfterFeedback(expectedRunId, expectedQuestionIndex) {
   });
 }
 
-function continueFeedback(payload = {}) {
-  if (
-    quizState.status !== 'running'
-    || quizState.phase !== 'feedback'
-    || payload?.sessionId !== quizState.runId
-    || payload?.questionId !== currentQuestion()?.id
-  ) {
-    return { ok: false, message: 'This answer feedback is no longer active.' };
-  }
-
-  clearQuizTimers();
-  advanceAfterFeedback(quizState.runId, quizState.questionIndex);
-  return { ok: true };
+// Reply to older clients without letting a stale Next Question action skip the reveal.
+function continueFeedback() {
+  return { ok: false, message: 'Answers advance automatically after the colour reveal.' };
 }
 
 function scheduleLockedAnswer(expectedRunId, expectedQuestionIndex) {
   clearQuizTimers();
-  const revealDelay = Math.max(0, (quizState.feedbackRevealAt || Date.now()) - Date.now());
   const advanceDelay = Math.max(0, (quizState.feedbackEndsAt || Date.now()) - Date.now());
-
-  feedbackTimer = setTimeout(() => {
-    if (
-      quizState.runId !== expectedRunId
-      || quizState.questionIndex !== expectedQuestionIndex
-      || quizState.status !== 'running'
-      || quizState.phase !== 'locked'
-    ) return;
-
-    setQuizState({ ...quizState, phase: 'feedback', feedbackVisible: true });
-  }, revealDelay);
-
   advanceTimer = setTimeout(() => {
     advanceAfterFeedback(expectedRunId, expectedQuestionIndex);
   }, advanceDelay);
@@ -659,8 +638,8 @@ function lockAnswer() {
     ...quizState,
     phase: 'locked',
     feedbackVisible: false,
-    feedbackRevealAt: now + FEEDBACK_REVEAL_DELAY_MS,
-    feedbackEndsAt: now + FEEDBACK_REVEAL_DELAY_MS + FEEDBACK_DELAY_MS,
+    feedbackRevealAt: null,
+    feedbackEndsAt: now + ANSWER_REVEAL_DURATION_MS,
     answers: [
       ...quizState.answers,
       {

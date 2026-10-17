@@ -26,7 +26,6 @@ function OperatorView({
   showOptions,
   goBack,
   lockAnswer,
-  continueFeedback,
   requestOperatorAnswer,
   useLifeline,
   dismissLifeline,
@@ -77,7 +76,6 @@ function OperatorView({
 
   return (
     <EventQuestionView
-      continueFeedback={continueFeedback}
       dismissLifeline={dismissLifeline}
       error={error}
       goBack={goBack}
