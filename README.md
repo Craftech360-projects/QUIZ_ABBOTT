@@ -5,6 +5,8 @@ The app runs one Express and Socket.IO server that owns the game state and keeps
 - Operator controls: `http://localhost:3002/operator`
 - Audience display: `http://localhost:3002/display`
 
+The homepage `/` opens `/operator`. Legacy `/quiz/:questionNumber`, `/score`, and `/leaderboard` links also open the current operator flow instead of the retired yellow UI. Use the leaderboard button in the game result screen to view scores.
+
 ## Install and run
 
 ```bash
@@ -39,6 +41,8 @@ Leaderboard results use the existing `ABBOTT_QUIZ` Supabase table by default. It
 To reset test leaderboard entries, run `node scripts/reset-leaderboard.mjs` for a read-only count. The explicit `--confirm-clear-current-leaderboard` flag first saves a private recovery copy in `.leaderboard-backups/`, then deletes only the snapshotted row IDs and verifies removal. Do not run this during an event. Nothing is seeded or cleared at server startup.
 
 The checked-in `vercel.json` deploys only the static Vite frontend; it does not deploy `server.js`. The JSON/JSONL/CSV persistence is suitable only for one long-lived server process with a durable local disk. Do not use it as authoritative state on Vercel Functions or a multi-instance host: those environments require shared durable storage and cross-instance real-time fan-out.
+
+For a Vercel frontend with a separately hosted backend, run `node server.js --api-only` on one long-lived Node service with HTTPS, WebSocket support, and a persistent disk. Configure Supabase credentials on that service only, and point `GAME_STATE_FILE`, `SESSION_HISTORY_FILE`, `PENDING_RESULTS_FILE`, and `OPERATOR_TOKEN_FILE` to the persistent disk. Set `VITE_API_URL` in the Vercel project to that service's public HTTPS origin (no `/api` suffix), then rebuild the frontend. Both Socket.IO game state and leaderboard HTTP requests use this same origin. Leave the value empty for local use. A frontend deployment alone does not start the backend.
 
 Configure the server with `.env.local`:
 

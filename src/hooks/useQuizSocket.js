@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
+import { API_BASE_URL } from '../config.js';
 
 export function useQuizSocket({ operator = false } = {}) {
   const socketRef = useRef(null);
@@ -11,7 +12,7 @@ export function useQuizSocket({ operator = false } = {}) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    const socket = io({
+    const socket = io(API_BASE_URL || undefined, {
       auth: { operator },
       transports: ['websocket'],
     });

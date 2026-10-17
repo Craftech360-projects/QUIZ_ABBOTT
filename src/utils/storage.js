@@ -1,7 +1,7 @@
 import { questions, quizConfig } from '../data/questions.js';
 import { selectLevelQuestions } from '../data/levelQuestions.js';
+import { API_BASE_URL } from '../config.js';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 const QUIZ_QUESTION_COUNT = quizConfig.questionCount;
 
 let currentParticipant = null;
