@@ -369,16 +369,21 @@ const CHAMPION_CELEBRATION_MS = 6000;
 
 function useResultStage(quizState) {
   const completedAt = Date.parse(quizState.completedAt || '') || Date.now();
-  const [elapsed, setElapsed] = useState(() => Math.max(0, Date.now() - completedAt));
+  // completedAt is issued by the quiz server.  Use the socket's measured clock
+  // offset so the operator and audience move from the celebration to the end
+  // actions together, even when their device clocks differ.
+  const clockOffsetMs = Number(quizState.clockOffsetMs) || 0;
+  const getElapsed = () => Math.max(0, Date.now() + clockOffsetMs - completedAt);
+  const [elapsed, setElapsed] = useState(getElapsed);
 
   useEffect(() => {
     if (quizState.resultView === 'leaderboard') return undefined;
 
-    const update = () => setElapsed(Math.max(0, Date.now() - completedAt));
+    const update = () => setElapsed(getElapsed());
     update();
     const timerId = window.setInterval(update, 250);
     return () => window.clearInterval(timerId);
-  }, [completedAt, quizState.resultView]);
+  }, [completedAt, clockOffsetMs, quizState.resultView]);
 
   if (quizState.resultView === 'leaderboard') return 'leaderboard';
   if (quizState.outcome?.type === 'champion') {
