@@ -6,6 +6,9 @@ import audienceTrack from '../../music/Car pool_Audience Poll.mp3';
 import fiftyFiftyTrack from '../../music/50_50.mp3';
 import endTrack from '../../music/Game End.mp3';
 
+const correctAnswerTrack = '/ANSWER-TONE/Correct answer.mp3';
+const wrongAnswerTrack = '/ANSWER-TONE/Wrong answer.mp3';
+
 export default function EventMusic({ quizState, defaultEnabled = false }) {
   const audioRef = useRef(null);
   const [enabled, setEnabled] = useState(defaultEnabled);
@@ -19,6 +22,8 @@ export default function EventMusic({ quizState, defaultEnabled = false }) {
   const questionKey = quizState?.status === 'running'
     ? `${quizState.sessionId}:${quizState.questions[quizState.questionIndex]?.id}`
     : null;
+  const currentQuestion = quizState?.questions?.[quizState.questionIndex];
+  const selectedAnswerIsCorrect = currentQuestion?.correctOptionIds?.includes(quizState?.selectedOption);
 
   let track = null;
   if (quizState?.status === 'registering'
@@ -26,6 +31,8 @@ export default function EventMusic({ quizState, defaultEnabled = false }) {
     track = startTrack;
   } else if (quizState?.status === 'finished') {
     if (playedEndSession !== resultKey) track = endTrack;
+  } else if (quizState?.status === 'running' && quizState.phase === 'locked') {
+    track = selectedAnswerIsCorrect ? correctAnswerTrack : wrongAnswerTrack;
   } else if (questionKey && ['answering', 'confirming'].includes(quizState.phase)) {
     if (quizState.activeLifeline) track = audienceTrack;
     else if (quizState.phase === 'answering' && quizState.eliminatedOptionIds?.length
@@ -57,7 +64,11 @@ export default function EventMusic({ quizState, defaultEnabled = false }) {
         audio.src = track;
         audio.load();
       }
-      audio.loop = track !== questionTrack && track !== fiftyFiftyTrack && track !== endTrack;
+      audio.loop = track !== questionTrack
+        && track !== fiftyFiftyTrack
+        && track !== endTrack
+        && track !== correctAnswerTrack
+        && track !== wrongAnswerTrack;
     } else {
       audio.removeAttribute('src');
       audio.load();
