@@ -7,6 +7,8 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { Server as SocketIOServer } from 'socket.io';
+import { questions as questionBank, quizConfig } from './src/data/questions.js';
+import { selectLevelQuestions } from './src/data/levelQuestions.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,7 +28,7 @@ const app = express();
 const httpServer = createServer(app);
 const io = new SocketIOServer(httpServer);
 const PORT = Number(process.env.PORT || 3002);
-const QUESTIONS_PER_RUN = 10;
+const QUESTIONS_PER_RUN = quizConfig.questionCount;
 const LIFELINE_TYPES = ['audiencePoll', 'phoneAFriend', 'fiftyFifty'];
 const FEEDBACK_REVEAL_DELAY_MS = Number(process.env.FEEDBACK_REVEAL_DELAY_MS || 4000);
 const FEEDBACK_DELAY_MS = Number(process.env.FEEDBACK_DELAY_MS || 10000);
@@ -123,32 +125,6 @@ async function persistPendingResults() {
   await fsp.rename(temporaryPath, pendingResultsFilePath);
 }
 
-async function loadQuestionBank() {
-  const questionSourcePath = path.join(__dirname, 'src/data/questions.js');
-  let source = await fsp.readFile(questionSourcePath, 'utf8');
-  const imagePaths = {
-    siteA: '/question-images/site-a.png',
-    siteB: '/question-images/site-b.png',
-    siteC: '/question-images/site-c.png',
-    siteD: '/question-images/site-d.png',
-  };
-
-  for (const [variableName, imageUrl] of Object.entries(imagePaths)) {
-    const importPattern = new RegExp(`import ${variableName} from ['\"]\\.\\./images/[^'\"]+['\"];`);
-    source = source.replace(importPattern, `const ${variableName} = '${imageUrl}';`);
-  }
-
-  if (/^import\s/m.test(source)) {
-    throw new Error('The question bank contains an unsupported server-side import.');
-  }
-
-  const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
-  const questionModule = await import(moduleUrl);
-  return questionModule.questions;
-}
-
-const questionBank = await loadQuestionBank();
-
 function correctOptionIds(question) {
   return Array.isArray(question?.correctOptionIds)
     ? question.correctOptionIds
@@ -167,18 +143,7 @@ function isEligibleGameQuestion(question) {
     && optionIds.has(acceptedOptionIds[0]);
 }
 
-const gameQuestionBank = questionBank.filter(isEligibleGameQuestion);
-const gameQuestionIds = new Set(gameQuestionBank.map((question) => question.id));
-
-if (gameQuestionIds.size !== gameQuestionBank.length) {
-  throw new Error('Eligible game questions must have unique IDs.');
-}
-
-if (gameQuestionBank.length < QUESTIONS_PER_RUN) {
-  throw new Error(
-    `The question bank needs at least ${QUESTIONS_PER_RUN} single-answer questions with four unique options.`,
-  );
-}
+const gameQuestionIds = new Set(questionBank.map((question) => question.id));
 
 function shuffle(items) {
   const shuffled = [...items];
@@ -192,8 +157,7 @@ function shuffle(items) {
 }
 
 function createRunQuestions() {
-  return shuffle(gameQuestionBank)
-    .slice(0, QUESTIONS_PER_RUN)
+  return selectLevelQuestions()
     .map((question) => ({
       ...question,
       options: shuffle(question.options),
@@ -306,7 +270,11 @@ async function loadQuizState() {
       restored.status !== 'idle'
       && (
         restored.questions.length !== QUESTIONS_PER_RUN
-        || !restored.questions.every(isEligibleGameQuestion)
+        || !restored.questions.every((question, index) => (
+          isEligibleGameQuestion(question)
+          && question.level === index + 1
+          && gameQuestionIds.has(question.id)
+        ))
       )
     ) {
       return createIdleState();

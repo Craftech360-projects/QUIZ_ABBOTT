@@ -1,4 +1,5 @@
 import { questions, quizConfig } from '../data/questions.js';
+import { selectLevelQuestions } from '../data/levelQuestions.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 const QUIZ_QUESTION_COUNT = quizConfig.questionCount;
@@ -34,7 +35,7 @@ function shuffleItems(items) {
 }
 
 function createQuestionOrder() {
-  return shuffleItems(questions.map((question) => question.id));
+  return selectLevelQuestions().map((question) => question.id);
 }
 
 function createOptionOrders() {
@@ -166,7 +167,9 @@ export function getParticipantQuestions(participant, quizQuestions = questions) 
     return orderedQuestions.slice(0, QUIZ_QUESTION_COUNT);
   }
 
-  return quizQuestions.slice(0, QUIZ_QUESTION_COUNT);
+  return Array.from({ length: QUIZ_QUESTION_COUNT }, (_, index) => (
+    quizQuestions.find((question) => question.level === index + 1)
+  )).filter(Boolean);
 }
 
 export function getParticipantOptions(participant, question) {

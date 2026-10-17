@@ -156,7 +156,7 @@ function LevelLadder({ currentLevel, totalLevels }) {
     <aside className="event-level-ladder" aria-label={`Current level ${currentLevel}`}>
       {levels.map((level) => {
         const classNames = ['event-level'];
-        if ([4, 8, 10].includes(level)) classNames.push('milestone');
+        if (quizConfig.safeLevels.includes(level) || level === totalLevels) classNames.push('milestone');
         if (level === currentLevel) classNames.push('current');
         if (level < currentLevel) classNames.push('completed');
         return <div className={classNames.join(' ')} key={level}>Level - {level}</div>;

@@ -8,6 +8,8 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { io as createSocket } from 'socket.io-client';
+import { questions, quizConfig } from '../src/data/questions.js';
+import { createLevelPools, selectLevelQuestions } from '../src/data/levelQuestions.js';
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(testDirectory, '..');
@@ -25,16 +27,31 @@ async function getFreePort() {
 }
 
 async function loadCorrectAnswers() {
-  const sourcePath = path.join(projectRoot, 'src/data/questions.js');
-  let source = await readFile(sourcePath, 'utf8');
-  source = source.replace(
-    /^import (\w+) from ['"]\.\.\/images\/[^'"]+['"];$/gm,
-    "const $1 = '/test-image.png';",
-  );
-  const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
-  const { questions } = await import(moduleUrl);
   return new Map(questions.map((question) => [question.id, question.correctOptionId]));
 }
+
+test('draws one question from each supplied level pool, with every row reachable', () => {
+  const pools = createLevelPools();
+  assert.equal(quizConfig.questionCount, 8);
+  assert.deepEqual(pools.map((pool) => pool.length), [50, 50, 50, 50, 50, 43, 24, 29]);
+  assert.equal(questions.length, 346);
+  const selected = new Set();
+  for (let sample = 0; sample < 500; sample += 1) {
+    const run = selectLevelQuestions(() => (sample + 0.5) / 500);
+    assert.deepEqual(run.map((question) => question.level), [1, 2, 3, 4, 5, 6, 7, 8]);
+    run.forEach((question, index) => {
+      assert.ok(pools[index].includes(question));
+      selected.add(question.id);
+    });
+  }
+  assert.equal(selected.size, questions.length);
+  let draws = 0;
+  selectLevelQuestions(() => { draws += 1; return 0; });
+  assert.equal(draws, 8, 'Each level must receive an independent random draw');
+  assert.deepEqual(questions.find((question) => question.id === 'umc-l7-r2').options.map((option) => option.text),
+    ['5%', '10%', '20%', '35%']);
+  assert.throws(() => createLevelPools(questions.filter((question) => question.level !== 8)), /Level 8/);
+});
 
 function createStateTracker(socket) {
   let current = null;
@@ -112,7 +129,7 @@ async function startServer({
   resultsFile,
   sessionHistoryFile,
   feedbackRevealDelayMs = 5,
-  feedbackDelayMs = 10,
+  feedbackDelayMs = 100,
   questionDurationMs = 45000,
   resultsStorage = 'csv',
   supabaseTestUrl = '',
@@ -192,7 +209,10 @@ async function answerCurrentLevel({ correct, correctAnswers, operator, tracker }
   await tracker.waitFor((next) => next.phase === 'confirming' && next.selectedOption === optionId);
   assert.equal((await emitAction(operator, 'lock_answer')).ok, true);
   const feedback = await tracker.waitFor((next) => next.phase === 'feedback' && next.questionIndex === state.questionIndex);
-  assert.ok(feedback.questions[state.questionIndex].explanation?.trim(), 'Feedback must include the answer explanation');
+  const revealedQuestion = feedback.questions[state.questionIndex];
+  assert.deepEqual(revealedQuestion.correctOptionIds, [correctOptionId]);
+  assert.equal(revealedQuestion.explanation, questions.find((entry) => entry.id === question.id).explanation,
+    'Feedback must preserve supplied explanations without inventing missing ones');
   assert.ok(feedback.questions.every((entry, index) => index === state.questionIndex || !('explanation' in entry)),
     'Explanations for other questions must remain hidden');
   return optionId;
@@ -213,7 +233,7 @@ async function playUntilOutcome({ correctLevels, correctAnswers, operator, track
   return tracker.waitFor((state) => state.status === 'finished');
 }
 
-test('ten-level operator/display game flow, lifelines, outcomes, authorization, and recovery', async (t) => {
+test('eight-level operator/display game flow, lifelines, outcomes, authorization, and recovery', async (t) => {
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'quiz-abbott-test-'));
   const stateFile = path.join(temporaryDirectory, 'game-state.json');
   const resultsFile = path.join(temporaryDirectory, 'results.csv');
@@ -300,7 +320,8 @@ test('ten-level operator/display game flow, lifelines, outcomes, authorization, 
 
   let state = await startRun(operator, operatorTracker, 'Champion Test');
   await displayTracker.waitFor((next) => next.sessionId === state.sessionId && next.status === 'running');
-  assert.equal(state.questions.length, 10);
+  assert.equal(state.questions.length, 8);
+  assert.deepEqual(state.questions.map((question) => question.level), [1, 2, 3, 4, 5, 6, 7, 8]);
   assert.ok(state.questions.every((question) => question.options.length === 4));
   assert.ok(state.questions.every((question) => !('correctOptionId' in question)));
   assert.ok(state.questions.every((question) => !('explanation' in question)));
@@ -342,10 +363,10 @@ test('ten-level operator/display game flow, lifelines, outcomes, authorization, 
   assert.equal(concurrentLocks.filter((result) => !result.ok).length, 1);
   await operatorTracker.waitFor((next) => next.questionIndex === 1 && next.phase === 'answering');
 
-  for (let level = 2; level <= 10; level += 1) {
+  for (let level = 2; level <= 8; level += 1) {
     const previousIndex = operatorTracker.current.questionIndex;
     await answerCurrentLevel({ correct: true, correctAnswers, operator, tracker: operatorTracker });
-    if (level < 10) {
+    if (level < 8) {
       await operatorTracker.waitFor((next) => (
         next.questionIndex === previousIndex + 1 && next.phase === 'answering'
       ));
@@ -354,8 +375,8 @@ test('ten-level operator/display game flow, lifelines, outcomes, authorization, 
 
   state = await operatorTracker.waitFor((next) => next.status === 'finished');
   const displayChampion = await displayTracker.waitFor((next) => next.status === 'finished');
-  assert.deepEqual(state.outcome, { type: 'champion', awardedLevel: 10, failedLevel: null });
-  assert.equal(state.completedLevel, 10);
+  assert.deepEqual(state.outcome, { type: 'champion', awardedLevel: 8, failedLevel: null });
+  assert.equal(state.completedLevel, 8);
   assert.equal(state.resultView, 'sequence');
   assert.equal(displayChampion.revision, state.revision);
   await operatorTracker.waitFor((next) => Boolean(next.resultSavedAt));
@@ -397,14 +418,14 @@ test('ten-level operator/display game flow, lifelines, outcomes, authorization, 
 
   assert.equal((await emitAction(operator, 'restart')).ok, true);
   await operatorTracker.waitFor((next) => next.status === 'idle');
-  await startRun(operator, operatorTracker, 'Level Eight');
+  await startRun(operator, operatorTracker, 'Level Seven');
   state = await playUntilOutcome({
-    correctLevels: 8,
+    correctLevels: 7,
     correctAnswers,
     operator,
     tracker: operatorTracker,
   });
-  assert.deepEqual(state.outcome, { type: 'milestone', awardedLevel: 8, failedLevel: 9 });
+  assert.deepEqual(state.outcome, { type: 'milestone', awardedLevel: 7, failedLevel: 8 });
 
   assert.equal((await emitAction(operator, 'restart')).ok, true);
   await operatorTracker.waitFor((next) => next.status === 'idle');
@@ -412,6 +433,7 @@ test('ten-level operator/display game flow, lifelines, outcomes, authorization, 
   await answerCurrentLevel({ correct: true, correctAnswers, operator, tracker: operatorTracker });
   state = await operatorTracker.waitFor((next) => next.questionIndex === 1 && next.phase === 'answering');
   const restoredSessionId = state.sessionId;
+  const restoredQuestions = state.questions;
 
   operator.close();
   displayConnection.socket.close();
@@ -425,6 +447,7 @@ test('ten-level operator/display game flow, lifelines, outcomes, authorization, 
   assert.equal(state.status, 'running');
   assert.equal(state.questionIndex, 1);
   assert.equal(state.answers.length, 1);
+  assert.deepEqual(state.questions, restoredQuestions, 'Restart must keep all selected questions and option orders');
 
   const publicResponse = await fetch(`${server.baseUrl}/api/game`);
   const publicState = await publicResponse.json();
@@ -485,7 +508,7 @@ test('feedback buttons advance immediately, synchronize displays, and reject dup
   assert.equal((await emitAction(operator.socket, 'continue_feedback', payloadFor(operator.tracker.current))).ok, false);
 
   let previousPayload;
-  for (let level = 0; level < 10; level++) {
+  for (let level = 0; level < 8; level++) {
     await answerCurrentLevel({ correct: true, correctAnswers, operator: operator.socket, tracker: operator.tracker });
     const feedback = operator.tracker.current;
     const payload = payloadFor(feedback);
@@ -493,7 +516,7 @@ test('feedback buttons advance immediately, synchronize displays, and reject dup
     if (previousPayload) assert.equal((await emitAction(operator.socket, 'continue_feedback', previousPayload)).ok, false);
     assert.ok(feedback.feedbackEndsAt > Date.now());
     assert.equal((await emitAction(operator.socket, 'continue_feedback', payload)).ok, true);
-    const done = state => level === 9
+    const done = state => level === 7
       ? state.status === 'finished' && state.outcome.type === 'champion'
       : state.questionIndex === level + 1 && state.phase === 'answering';
     await operator.tracker.waitFor(done, 1000);
@@ -668,14 +691,14 @@ test('timeouts show participation below four correct answers and exact levels ab
   t.after(async () => { operator.socket.close(); await stopServer(server.child); });
   const correctAnswers = await loadCorrectAnswers();
 
-  for (const completedLevels of [1, 2, 3, 4, 5, 7, 8, 9]) {
+  for (const completedLevels of [1, 2, 3, 4, 5, 6, 7]) {
     await startRun(operator.socket, operator.tracker, `Timeout Level ${completedLevels}`);
     for (let index = 0; index < completedLevels; index += 1) {
       await answerCurrentLevel({ correct: true, correctAnswers, operator: operator.socket, tracker: operator.tracker });
       await operator.tracker.waitFor((state) => state.phase === 'answering' && state.questionIndex === index + 1);
     }
     const state = operator.tracker.current;
-    if (completedLevels === 9) {
+    if (completedLevels === 7) {
       // An offline server cannot give an expired question a fresh deadline on restart.
       operator.socket.close();
       await stopServer(server.child);
@@ -695,7 +718,7 @@ test('timeouts show participation below four correct answers and exact levels ab
   }
 });
 
-test('wrong answers show participation for levels 1–3 and congratulations for levels 4–9 on both screens', async (t) => {
+test('wrong answers show participation for levels 1–3 and congratulations for levels 4–7 on both screens', async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'quiz-exact-levels-'));
   const server = await startServer({
     port: await getFreePort(),
@@ -711,7 +734,7 @@ test('wrong answers show participation for levels 1–3 and congratulations for 
     await stopServer(server.child);
   });
   const correctAnswers = await loadCorrectAnswers();
-  for (let completedLevel = 1; completedLevel <= 9; completedLevel += 1) {
+  for (let completedLevel = 1; completedLevel <= 7; completedLevel += 1) {
     const initial = await startRun(operator.socket, operator.tracker, `Completed ${completedLevel}`);
     const result = await playUntilOutcome({
       correctLevels: completedLevel, correctAnswers, operator: operator.socket, tracker: operator.tracker,
@@ -770,7 +793,7 @@ test('Supabase leaderboard starts empty, ranks new players, and recovers failed 
   });
   const getResults = async () => (await fetch(`${server.baseUrl}/api/results`)).json();
   assert.deepEqual(await getResults(), []);
-  for (const [name, score] of [['First Player', 4], ['Highest Player', 9], ['Third Player', 6]]) {
+  for (const [name, score] of [['First Player', 4], ['Highest Player', 8], ['Third Player', 6]]) {
     const response = await fetch(`${server.baseUrl}/api/results`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, score, email: `${name.replaceAll(' ', '')}@example.test` }),
@@ -778,7 +801,7 @@ test('Supabase leaderboard starts empty, ranks new players, and recovers failed 
     assert.equal(response.status, 201);
   }
   const leaderboard = await getResults();
-  assert.deepEqual(leaderboard.map((row) => row.score), [9, 6, 4]);
+  assert.deepEqual(leaderboard.map((row) => row.score), [8, 6, 4]);
   assert.equal(leaderboard[0].name, 'Highest Player');
   assert.ok(leaderboard.every((row) => !('email' in row)));
   unavailable = true;

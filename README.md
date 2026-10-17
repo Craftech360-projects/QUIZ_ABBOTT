@@ -18,14 +18,14 @@ The server listens on `0.0.0.0`, so another screen on the same network can use t
 
 ## Game rules implemented
 
-- Each run contains ten levels drawn from the existing question bank.
-- Only existing questions with four unique options and one defined correct answer are eligible. The four true/false questions and the one multi-answer question remain in the source bank but are excluded from this single-answer game mode.
+- Each run contains eight levels, selecting one random question from each corresponding level pool in `UMC_Level 1_8.xlsx`. Levels remain in order; options are shuffled and selections are saved for reconnects.
+- The imported bank contains 346 questions: 50 each for levels 1–5, 43 for level 6, 24 for level 7, and 29 for level 8. See [question-bank notes](docs/question-bank.md) for source counts and answer-key inconsistencies. Missing questions and explanations are not invented.
 - Selecting an option opens the confirmation step. `Go Back` clears the selection. `Lock Answer` validates it once and prevents duplicate submissions.
 - Each question has a server-enforced 45-second deadline. Selecting an option pauses the remaining time indefinitely during confirmation; `Go Back` resumes that remainder. Expiry without a selection ends the run with the appropriate existing milestone/participation screen. Deadlines and paused time survive reconnects and server restarts.
 - The bottom-left `?` on the operator screen opens a private correct-answer popup matching Frame 14. It does not appear on the audience display or pause the question timer; closing it returns to the question.
 - A correct locked answer advances to the next level after feedback.
 - During feedback, the operator can click `Next Question` or `View Result` to continue immediately. Otherwise, feedback advances automatically after 10 seconds. Both screens stay synchronized.
-- An incorrect locked answer or unanswered-question timeout ends the run. With 0–3 correct answers, only the thank-you-for-participating screen is shown, without congratulations or a level number. With 4–9 correct answers, congratulations shows the exact number of completed levels (for example, failing Question 10 shows Level 9). Completing all 10 levels keeps the Urban Mobility Champion screen.
+- An incorrect locked answer or unanswered-question timeout ends the run. With 0–3 correct answers, only the thank-you-for-participating screen is shown, without congratulations or a level number. With 4–7 correct answers, congratulations shows the exact number of completed levels (for example, failing Question 8 shows Level 7). Completing all 8 levels shows the existing Urban Mobility Champion screen.
 - Audience Poll, Phone-A-Friend, and 50:50 are single-use per run. 50:50 removes two incorrect choices. The other two lifelines synchronize an active state for the live operator and display, but do not fabricate poll percentages, recommendations, or phone timing because the supplied specification does not define those behaviors.
 
 The application records the completed level without assigning monetary prizes or other rewards.
@@ -76,4 +76,4 @@ npm test
 npm run build
 ```
 
-The integration test starts an isolated server and verifies authorization, ten four-option levels, selection/back/locking, duplicate rejection, all three lifelines, correct progression, wrong-answer outcomes before Levels 4, 8, and 10, champion completion, operator/display synchronization, result/session persistence, and recovery after a server restart.
+The tests verify all eight question pools and selection coverage, then start isolated servers to verify authorization, eight four-option levels, selection/back/locking, duplicate rejection, all three lifelines, correct progression, participation for 0–3 completed levels, exact-level outcomes for 4–7, champion completion at 8, operator/display synchronization, result/session persistence, and recovery after a server restart. Test results never go to the real Supabase leaderboard.
