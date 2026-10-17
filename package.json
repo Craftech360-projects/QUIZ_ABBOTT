@@ -4,21 +4,23 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "dev:all": "node scripts/dev-all.js",
-    "dev:frontend": "vite",
+    "dev": "node server.js",
     "kiosk": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-kiosk.ps1",
-    "server": "node server.js",
-    "start": "node server.js",
+    "server": "node server.js --production",
+    "start": "vite build && node server.js --production",
     "build": "vite build",
+    "test": "node --test --test-concurrency=1 tests/quiz-flow.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.0",
+    "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.0.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
     "vite": "^7.0.0"
   }
 }

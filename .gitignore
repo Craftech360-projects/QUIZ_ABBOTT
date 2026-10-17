@@ -1,6 +1,14 @@
 node_modules
 dist
 .env
+.env.local
 results.csv
+.leaderboard-backups/
+.quiz-pending-results.json
+.quiz-pending-results.json.*.tmp
+quiz-sessions.jsonl
+.quiz-session.json
+.quiz-session.json.*.tmp
+.quiz-operator-token
 *.log
 .DS_Store

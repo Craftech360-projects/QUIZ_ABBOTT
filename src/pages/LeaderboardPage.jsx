@@ -1,62 +1,39 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { questions } from '../data/questions.js';
 import leaderboardArtwork from '../images/fp5.png';
 import {
-  calculateScore,
   getCurrentParticipant,
-  getParticipantQuestions,
   getSortedLeaderboard,
 } from '../utils/storage.js';
 
 const LEADERBOARD_DISPLAY_LIMIT = 10;
 
-function getInstantLeaderboardEntry(participant) {
-  if (!participant) return null;
-  if (participant.leaderboardEntry) return participant.leaderboardEntry;
-
-  const participantQuestions = getParticipantQuestions(participant, questions);
-  const score = calculateScore(participant.answers, participantQuestions);
-
-  return {
-    entryId: participant.leaderboardEntryId || `local-${participant.id}`,
-    name: participant.fullName,
-    email: participant.email,
-    score,
-    total: participantQuestions.length,
-    percentage: Math.round((score / participantQuestions.length) * 100),
-    completedAt: participant.completedAt || new Date().toISOString(),
-  };
-}
-
 export default function LeaderboardPage() {
   const navigate = useNavigate();
   const currentParticipant = getCurrentParticipant();
   const latestEntryId = currentParticipant?.leaderboardEntryId;
-  const instantEntry = getInstantLeaderboardEntry(currentParticipant);
-  const [entries, setEntries] = useState(() => (instantEntry ? [instantEntry] : []));
-  const [isLoading, setIsLoading] = useState(() => !instantEntry);
+  const [entries, setEntries] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const visibleEntries = entries.slice(0, LEADERBOARD_DISPLAY_LIMIT);
 
   const loadLeaderboard = useCallback(async () => {
-    if (entries.length === 0) {
-      setIsLoading(true);
-    }
     setError('');
 
     try {
       const savedEntries = await getSortedLeaderboard();
-      setEntries((current) => (savedEntries.length > 0 ? savedEntries : current));
+      setEntries(savedEntries);
     } catch (loadError) {
       setError(loadError.message);
     } finally {
       setIsLoading(false);
     }
-  }, [entries.length]);
+  }, []);
 
   useEffect(() => {
     loadLeaderboard();
+    const timerId = window.setInterval(loadLeaderboard, 5000);
+    return () => window.clearInterval(timerId);
   }, [loadLeaderboard]);
 
   return (

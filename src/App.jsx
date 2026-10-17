@@ -5,9 +5,14 @@ import StartPage from './pages/StartPage.jsx';
 import QuizPage from './pages/QuizPage.jsx';
 import ScorePage from './pages/ScorePage.jsx';
 import LeaderboardPage from './pages/LeaderboardPage.jsx';
+import DisplayPage from './pages/DisplayPage.jsx';
+import OperatorPage from './pages/OperatorPage.jsx';
+import { FIGMA_ASSET_URLS } from './components/EventQuizViews.jsx';
 import congratsFrame from './images/cong.png';
 import leaderboardArtwork from './images/fp5.png';
+import nameField from './images/name.png';
 import quizArtwork from './images/fp3.png';
+import registerArtwork from './images/fp2.png';
 import resultArtwork from './images/fp4.png';
 import startArtwork from './images/fp1.png';
 import startButton from './images/start.png';
@@ -18,7 +23,10 @@ const PRELOAD_IMAGES = [
   resultArtwork,
   leaderboardArtwork,
   congratsFrame,
+  nameField,
+  registerArtwork,
   startButton,
+  ...FIGMA_ASSET_URLS,
 ];
 
 function preloadImages() {
@@ -50,7 +58,9 @@ export default function App() {
         <Route path="/quiz/:questionNumber" element={<QuizPage />} />
         <Route path="/score" element={<ScorePage />} />
         <Route path="/leaderboard" element={<LeaderboardPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/operator" element={<OperatorPage />} />
+        <Route path="/display" element={<DisplayPage />} />
+        <Route path="*" element={<Navigate to="/display" replace />} />
       </Routes>
       <FullscreenToggle />
     </AppShell>

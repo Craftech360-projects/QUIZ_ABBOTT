@@ -4,13 +4,22 @@ import siteC from '../images/site-c.png';
 import siteD from '../images/site-d.png';
 
 export const quizConfig = {
-  questionCount: 5,
-  secondsPerQuestion: 25,
+  questionCount: 10,
+  secondsPerQuestion: 45,
+  safeLevels: [4, 8],
 };
 
+// Explanation references (product wording and clinical context):
+// https://pro.freestyle.abbott/ie-en/home/freestyle-portfolio/freestyle-libre-systems/freestyle-libre-2/freestyle-libre-2-plus-sensor.html
+// https://pro.freestyle.abbott/uk-en/freestyle-portfolio/freestyle-libre-systems/freestyle-libre-2.html
+// https://www.freestyle.abbott/content/dam/adc/freestyle/tr/documents/FreeStyle%20Libre%202%20Plus%20Kullan%C4%B1m%20K%C4%B1lavuzu.pdf
+// https://www.freestyle.abbott/content/dam/adc/freestyle/countries/us-en/documents/get-started-guide-FSL2-Plus.pdf
+// https://www.govinfo.gov/app/details/CFR-2023-title21-vol8/CFR-2023-title21-vol8-sec862-1355
+// https://diabetesjournals.org/care/article/49/Supplement_1/S321/163918
 export const questions = [
   {
     id: 'q1',
+    explanation: 'The sensor updates glucose every minute, helping you follow changes throughout the day.',
     text: 'FreeStyle Libre 2 Plus provides glucose readings at what frequency?',
     options: [
       { id: 'a', text: 'Every 5 minutes' },
@@ -22,6 +31,7 @@ export const questions = [
   },
   {
     id: 'q2',
+    explanation: 'FreeStyle Libre 2 Plus is indicated for people with diabetes aged 2 years and older, including children and adults.',
     text: 'FreeStyle Libre 2 Plus is indicated for people of which age group?',
     options: [
       { id: 'a', text: 'Adults only' },
@@ -33,6 +43,7 @@ export const questions = [
   },
   {
     id: 'q3',
+    explanation: 'Store the sensor kit between 4°C and 25°C. Keep it within this temperature range and do not freeze it.',
     text: 'What is the temperature range at which FreeStyle Libre 2 Plus must be stored?',
     options: [
       { id: 'a', text: '2 to 8 C' },
@@ -44,6 +55,7 @@ export const questions = [
   },
   {
     id: 'q4',
+    explanation: 'Use a finger-prick test when readings or alarms do not match symptoms or expectations, or when the device instructs you to check.',
     text: 'Which statement about finger prick testing with FreeStyle Libre 2 Plus is correct?',
     options: [
       { id: 'a', text: 'Finger pricks are mandatory before every reading' },
@@ -55,6 +67,7 @@ export const questions = [
   },
   {
     id: 'q5',
+    explanation: 'Studies show lower HbA1c, more time in the target range, and less time with low glucose. All three are clinical benefits.',
     text: 'Which of the following is a proven clinical benefit of FreeStyle Libre systems?',
     options: [
       { id: 'a', text: 'Reduced HbA1c' },
@@ -66,6 +79,7 @@ export const questions = [
   },
   {
     id: 'q6',
+    explanation: 'Apply the sensor to the back of the upper arm. This is the approved site for FreeStyle Libre 2 Plus.',
     text: 'Correct site of application of a sensor:',
     options: [
       { id: 'a', text: 'Site option A', image: siteA },
@@ -88,6 +102,7 @@ export const questions = [
   },
   {
     id: 'q8',
+    explanation: 'HbA1c reflects average glucose over time. CGM adds daily patterns and highs and lows that an average can hide.',
     text: 'What do ADA and APAC guidelines recommend for glucose monitoring?',
     options: [
       { id: 'a', text: 'HbA1c alone is sufficient' },
@@ -99,6 +114,7 @@ export const questions = [
   },
   {
     id: 'q9',
+    explanation: 'CGM tracks glucose throughout the day and night, showing trends between readings. A finger-prick test gives a single snapshot.',
     text: 'Compared to traditional blood glucose monitoring (BGM), CGM provides:',
     options: [
       { id: 'a', text: 'Less glucose data' },
@@ -110,6 +126,7 @@ export const questions = [
   },
   {
     id: 'q10',
+    explanation: 'LibreView stores glucose data in the cloud and turns it into reports that patients can share with their healthcare team.',
     text: 'What is LibreView?',
     options: [
       { id: 'a', text: 'A glucose sensor' },
@@ -139,6 +156,7 @@ export const questions = [
   },
   {
     id: 'q13',
+    explanation: 'iCGM criteria assess accuracy across glucose levels and trends. MARD alone cannot describe every aspect of CGM performance.',
     text: 'Which of the following statement is true?',
     options: [
       { id: 'a', text: 'When it comes to clinical outcomes and patient safety, not all CGMs are created equal' },
@@ -150,6 +168,7 @@ export const questions = [
   },
   {
     id: 'q14',
+    explanation: 'iCGM accuracy is assessed across low, normal and high glucose levels, including times when glucose is rising or falling.',
     text: 'iCGM systems are required to meet accuracy performance:',
     options: [
       { id: 'a', text: 'Only during stable glucose periods' },
@@ -179,6 +198,7 @@ export const questions = [
   },
   {
     id: 'q17',
+    explanation: 'Each FreeStyle Libre 2 Plus sensor can be worn for up to 15 days before it needs replacing.',
     text: 'FreeStyle Libre 2 Plus can be used for:',
     options: [
       { id: 'a', text: '7 days' },
@@ -190,6 +210,7 @@ export const questions = [
   },
   {
     id: 'q18',
+    explanation: 'The overall MARD is 8.2%: the average relative difference between sensor readings and reference glucose measurements.',
     text: 'FreeStyle Libre 2 Plus has a MARD of:',
     options: [
       { id: 'a', text: '11.7%' },
@@ -201,6 +222,7 @@ export const questions = [
   },
   {
     id: 'q19',
+    explanation: 'The pregnancy CGM target range is 63–140 mg/dL. This is a sensor range, distinct from fasting or after-meal blood glucose targets.',
     text: 'What is the recommended glycemic range for an expectant mother?',
     options: [
       { id: 'a', text: '70 - 180 mg/dl' },
@@ -212,6 +234,7 @@ export const questions = [
   },
   {
     id: 'q20',
+    explanation: 'The sensor is approved for the back of the upper arm. Choose a different spot there when replacing a sensor.',
     text: 'What is the correct site of application for FreeStyle Libre 2 Plus sensor?',
     options: [
       { id: 'a', text: 'Side of the arm' },

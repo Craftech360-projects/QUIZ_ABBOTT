@@ -1,9 +1,6 @@
 import { questions, quizConfig } from '../data/questions.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
-const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
-const SUPABASE_TABLE = import.meta.env.VITE_SUPABASE_TABLE || 'ABBOTT_QUIZ';
 const QUIZ_QUESTION_COUNT = quizConfig.questionCount;
 
 let currentParticipant = null;
@@ -71,44 +68,6 @@ async function requestJSON(path, options = {}) {
   return payload;
 }
 
-function hasSupabaseConfig() {
-  return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
-}
-
-async function requestSupabase(path, options = {}) {
-  if (!hasSupabaseConfig()) {
-    throw new Error('Supabase URL and anon key are missing.');
-  }
-
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    ...options,
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
-  const contentType = response.headers.get('content-type') || '';
-  const payload = contentType.includes('application/json') ? await response.json().catch(() => null) : null;
-
-  if (!response.ok) {
-    throw new Error(payload?.message || payload?.hint || 'Unable to reach Supabase.');
-  }
-
-  return payload;
-}
-
-function mapSupabaseEntry(row) {
-  return {
-    entryId: String(row.id),
-    name: row.name || '',
-    email: row.email || '',
-    score: Number(row.score),
-    completedAt: row.created_at,
-  };
-}
-
 function sortLeaderboard(entries) {
   return [...entries].sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
@@ -117,15 +76,6 @@ function sortLeaderboard(entries) {
 }
 
 export async function getLeaderboard() {
-  if (hasSupabaseConfig()) {
-    const params = new URLSearchParams();
-    params.set('select', 'id,name,email,score,created_at');
-    params.set('order', 'score.desc,created_at.asc');
-
-    const rows = await requestSupabase(`${encodeURIComponent(SUPABASE_TABLE)}?${params.toString()}`);
-    return Array.isArray(rows) ? rows.map(mapSupabaseEntry) : [];
-  }
-
   return requestJSON('/api/results');
 }
 
@@ -250,32 +200,14 @@ export async function finalizeCurrentParticipant(quizQuestions = questions) {
     const score = calculateScore(participant.answers, quizQuestions);
     const total = quizQuestions.length;
     const completedAt = new Date().toISOString();
-    const savedResult = hasSupabaseConfig()
-      ? await requestSupabase(`${encodeURIComponent(SUPABASE_TABLE)}?select=id,name,email,score,created_at`, {
-          method: 'POST',
-          headers: {
-            Prefer: 'return=representation',
-          },
-          body: JSON.stringify({
-            name: participant.fullName,
-            email: participant.email,
-            score,
-          }),
-        }).then((rows) => (Array.isArray(rows) && rows[0] ? mapSupabaseEntry(rows[0]) : {
-          entryId: createEntryId(),
-          name: participant.fullName,
-          email: participant.email,
-          score,
-          completedAt,
-        }))
-      : await requestJSON('/api/results', {
-          method: 'POST',
-          body: JSON.stringify({
-            name: participant.fullName,
-            email: participant.email,
-            score,
-          }),
-        });
+    const savedResult = await requestJSON('/api/results', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: participant.fullName,
+        email: participant.email,
+        score,
+      }),
+    });
     const savedScore = Number(savedResult.score ?? score);
     const savedCompletedAt = savedResult.completedAt || completedAt;
     const entry = {

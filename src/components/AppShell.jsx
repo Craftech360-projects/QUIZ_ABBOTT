@@ -6,10 +6,11 @@ export default function AppShell({ children }) {
   const isQuizPage = location.pathname.startsWith('/quiz/');
   const isScorePage = location.pathname === '/score';
   const isLeaderboardPage = location.pathname === '/leaderboard';
-  const isArtworkPage = isStartPage || isQuizPage || isScorePage || isLeaderboardPage;
+  const isEventScreen = location.pathname === '/operator' || location.pathname === '/display';
+  const isArtworkPage = isStartPage || isQuizPage || isScorePage || isLeaderboardPage || isEventScreen;
 
   return (
-    <div className={`app ${isArtworkPage ? 'app-artwork' : ''}`}>
+    <div className={`app ${isArtworkPage ? 'app-artwork' : ''} ${isEventScreen ? 'app-event' : ''}`}>
       <main className={`page-shell ${isArtworkPage ? 'artwork-shell' : ''}`}>{children}</main>
     </div>
   );
