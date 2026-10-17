@@ -2612,6 +2612,18 @@ tbody tr:last-child td {
   content: "";
 }
 
+/* Cover the old countdown printed into Frame 1; the live question panel sits above this. */
+.event-game-screen::before {
+  content: "";
+  position: absolute;
+  left: 27%;
+  top: 10%;
+  width: 14%;
+  height: 8%;
+  background: #1e194e;
+  z-index: 1;
+}
+
 .event-question-panel {
   align-items: center;
   background: #15123f;
@@ -2641,22 +2653,6 @@ tbody tr:last-child td {
   max-width: 96%;
 }
 
-.event-timer {
-  align-items: center;
-  background: #181546;
-  border: 1px solid #7773a6;
-  border-radius: 999px;
-  display: flex;
-  font-size: clamp(0.95rem, 2vw, 2.75rem);
-  height: 22%;
-  justify-content: center;
-  left: 38%;
-  min-height: 40px;
-  position: absolute;
-  top: -11%;
-  width: 22%;
-}
-
 .event-options-grid {
   background: transparent;
   box-shadow: none;
@@ -2664,13 +2660,44 @@ tbody tr:last-child td {
   gap: 3.055cqh 1.15cqw;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   /* Keep both rows covered while 50:50 packs the surviving options into row one. */
-  grid-template-rows: repeat(2, 8.2635cqh);
+  grid-template-rows: repeat(2, 8.6767cqh);
   left: 7%;
   position: absolute;
   top: 46.2%;
   width: 55.32%;
   z-index: 3;
-  animation: event-content-enter 410ms 95ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.event-show-options {
+  background: #fff;
+  border: 2px solid #fff;
+  border-radius: 10px;
+  box-shadow: 0 6px 18px #0003;
+  color: #26336d;
+  font: inherit;
+  font-size: clamp(1rem, 1.6vw, 2rem);
+  padding: 0.75em 1.6em;
+  position: absolute;
+  top: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.event-show-options:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.event-show-options:focus-visible {
+  outline: 3px solid var(--event-orange);
+  outline-offset: 4px;
+}
+
+@keyframes event-option-enter {
+  from { opacity: 0; transform: translateY(18px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* Cover the option boxes baked into the reference image, including their shadows.
@@ -2692,12 +2719,13 @@ tbody tr:last-child td {
   box-shadow: 9px 10px 0 #000;
   color: #3c3c3c;
   display: flex;
-  height: 8.2635cqh;
+  height: 8.6767cqh;
   min-height: 0;
   overflow: hidden;
   padding: 0;
   text-align: left;
   transition: background 150ms ease, color 150ms ease, opacity 150ms ease, transform 120ms ease;
+  animation: event-option-enter 450ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .event-option:disabled {
@@ -2764,7 +2792,7 @@ tbody tr:last-child td {
   left: calc(var(--option-column) * (50% + 0.575cqw));
   pointer-events: none;
   position: absolute;
-  top: calc(var(--option-row) * 11.3185cqh);
+  top: calc(var(--option-row) * 11.7317cqh);
   width: calc(50% - 0.575cqw);
 }
 
@@ -2781,14 +2809,14 @@ tbody tr:last-child td {
   from {
     transform: translate(
       calc(var(--shift-columns) * (100% + 1.15cqw)),
-      calc(var(--shift-rows) * 11.3185cqh)
+      calc(var(--shift-rows) * 11.7317cqh)
     );
   }
   to { transform: translate(0, 0); }
 }
 
 .event-option.image-option {
-  height: 8.2635cqh;
+  height: 8.6767cqh;
   min-height: 0;
 }
 
@@ -2890,7 +2918,8 @@ tbody tr:last-child td {
   color: #fff;
 }
 
-.event-level.current {
+.event-level.current,
+.event-level.completed {
   background: var(--event-used);
   border-color: #fff;
   box-shadow: none;
@@ -2899,11 +2928,6 @@ tbody tr:last-child td {
   font-weight: 400;
   transform: none;
   z-index: 2;
-}
-
-.event-level.completed:not(.milestone) {
-  background: #fff;
-  color: #26336d;
 }
 
 .event-modal-backdrop {
@@ -3370,6 +3394,7 @@ tbody tr:last-child td {
     display: none;
   }
 
+  .event-option,
   .event-option.lifeline-remaining {
     animation: none;
   }
@@ -3421,6 +3446,10 @@ tbody tr:last-child td {
     padding: 28px 20px 40px;
   }
 
+  .event-game-screen::before {
+    display: none;
+  }
+
   .event-game-screen > .event-reference-layer {
     opacity: 0;
     object-fit: cover;
@@ -3449,6 +3478,9 @@ tbody tr:last-child td {
   .event-options-grid {
     gap: 14px;
     grid-template-columns: 1fr;
+    grid-template-rows: none;
+    grid-auto-rows: minmax(78px, auto);
+    min-height: 354px;
   }
 
   .event-option {
@@ -3516,4 +3548,24 @@ tbody tr:last-child td {
     font-size: 1.15rem;
     height: 70px;
   }
+}
+
+.event-sound-toggle {
+  position: fixed;
+  bottom: 16px;
+  right: 72px;
+  z-index: 100;
+  padding: 8px 12px;
+  border: 1px solid #aaa6d2;
+  border-radius: 8px;
+  background: #181546;
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.event-sound-toggle:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
 }

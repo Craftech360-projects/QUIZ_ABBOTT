@@ -2,7 +2,6 @@
 // The workbook's "Correct option" column is the scoring key; see docs/question-bank.md.
 export const quizConfig = {
   questionCount: 8,
-  secondsPerQuestion: 45,
   safeLevels: [4],
 };
 

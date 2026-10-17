@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { questions, quizConfig } from '../data/questions.js';
 import { getSortedLeaderboard } from '../utils/storage.js';
+import { getVisibleOptionCount } from '../utils/optionReveal.js';
 
 const PUBLIC_ASSET_ROOT = '/';
 const CONFIRMATION_DIALOG_DELAY_MS = 1000;
@@ -69,23 +70,6 @@ export function EventStartView({ disabled = true, error = '', onStart }) {
       {error && <div className="event-error-toast" role="alert">{error}</div>}
     </section>
   );
-}
-
-function useQuestionCountdown(quizState) {
-  const [now, setNow] = useState(Date.now);
-
-  useEffect(() => {
-    setNow(Date.now());
-    if (quizState?.status !== 'running' || quizState?.phase !== 'answering') return undefined;
-
-    const timerId = window.setInterval(() => setNow(Date.now()), 100);
-    return () => window.clearInterval(timerId);
-  }, [quizState?.questionDeadline, quizState?.status, quizState?.phase]);
-
-  const remainingMs = quizState?.phase === 'answering' && quizState.questionDeadline != null
-    ? quizState.questionDeadline - (now + (quizState.clockOffsetMs || 0))
-    : quizState?.questionRemainingMs ?? quizConfig.secondsPerQuestion * 1000;
-  return Math.max(0, Math.ceil(remainingMs / 1000));
 }
 
 function OperatorAnswerHelp({ disabled, question, remainingOptions, requestAnswer, sessionId }) {
@@ -196,6 +180,30 @@ function LifelineIcon({ type }) {
   );
 }
 
+function useVisibleOptionCount(quizState) {
+  const [now, setNow] = useState(Date.now);
+  const { optionsRevealedAt, questionIndex, sessionId, clockOffsetMs = 0 } = quizState;
+  const optionCount = quizState.questions[questionIndex].options.length;
+  const interval = quizState.optionRevealIntervalMs;
+
+  useEffect(() => {
+    setNow(Date.now());
+    if (optionsRevealedAt == null) return undefined;
+    const update = () => {
+      const currentTime = Date.now();
+      setNow(currentTime);
+      if (getVisibleOptionCount(quizState, currentTime + clockOffsetMs) >= optionCount) {
+        window.clearInterval(timerId);
+      }
+    };
+    const timerId = window.setInterval(update, 50);
+    update();
+    return () => window.clearInterval(timerId);
+  }, [optionsRevealedAt, questionIndex, sessionId, clockOffsetMs, interval, optionCount]);
+
+  return getVisibleOptionCount(quizState, now + clockOffsetMs);
+}
+
 export function EventQuestionView({
   continueFeedback,
   dismissLifeline,
@@ -208,6 +216,7 @@ export function EventQuestionView({
   quizState,
   requestOperatorAnswer,
   selectOption,
+  showOptions,
   useLifeline,
 }) {
   const [showConfirmationDialog, setShowConfirmationDialog] = useState(false);
@@ -221,8 +230,9 @@ export function EventQuestionView({
   const correctOptionIndex = remainingOptions.findIndex((option) => option.id === correctOption?.id);
   const correctOptionLetter = correctOptionIndex >= 0 ? String.fromCharCode(65 + correctOptionIndex) : '';
   const explanation = question.explanation || questions.find((entry) => entry.id === question.id)?.explanation;
-  const timeLeft = useQuestionCountdown(quizState);
   const controlsDisabled = !interactive || !isConnected || isPending;
+  const visibleOptionCount = useVisibleOptionCount(quizState);
+  const allOptionsVisible = visibleOptionCount === question.options.length;
 
   useEffect(() => {
     if (!interactive || quizState.phase !== 'confirming') {
@@ -256,14 +266,16 @@ export function EventQuestionView({
       <ReferenceLayer src={FIGMA_ASSETS.question} />
 
       <div className="event-question-panel" key={`question-${question.id}`}>
-        <div className="event-timer" aria-label={`${timeLeft} seconds remaining`}>
-          00:{String(timeLeft).padStart(2, '0')}
-        </div>
         <h1>{question.text}</h1>
       </div>
 
       <div className="event-options-grid" aria-label="Answer options" key={`options-${question.id}`}>
-        {question.options.map((option, index) => {
+        {interactive && quizState.phase === 'answering' && quizState.optionsRevealedAt == null && (
+          <button className="event-show-options" type="button" disabled={controlsDisabled} onClick={showOptions}>
+            Show options
+          </button>
+        )}
+        {question.options.slice(0, visibleOptionCount).map((option, index) => {
           const remainingIndex = remainingOptions.findIndex((remaining) => remaining.id === option.id);
           const eliminated = remainingIndex === -1;
           return (
@@ -272,6 +284,7 @@ export function EventQuestionView({
             className={optionClassName(option)}
             disabled={
               controlsDisabled
+              || !allOptionsVisible
               || quizState.phase !== 'answering'
               || Boolean(quizState.activeLifeline)
               || eliminatedOptionIds.includes(option.id)
@@ -303,6 +316,7 @@ export function EventQuestionView({
               className={used ? 'used' : ''}
               disabled={
                 controlsDisabled
+                || !allOptionsVisible
                 || quizState.phase !== 'answering'
                 || Boolean(quizState.activeLifeline)
                 || used
@@ -324,7 +338,7 @@ export function EventQuestionView({
       />
 
       {interactive && isConnected && quizState.phase === 'answering' && (
-        <OperatorAnswerHelp key={`${quizState.sessionId}-${question.id}`} disabled={controlsDisabled || Boolean(quizState.activeLifeline)}
+        <OperatorAnswerHelp key={`${quizState.sessionId}-${question.id}`} disabled={controlsDisabled || !allOptionsVisible || Boolean(quizState.activeLifeline)}
           question={question} remainingOptions={remainingOptions} requestAnswer={requestOperatorAnswer} sessionId={quizState.sessionId} />
       )}
 
@@ -526,7 +540,7 @@ export function EventResultView({
       {['menu', 'eliminated'].includes(stage) && (
         <div className="event-end-actions">
           <button disabled={disabled || !interactive} onClick={onRestart} type="button"><span>END GAME</span></button>
-          <button disabled={disabled || !interactive} onClick={onShowLeaderboard} type="button"><span>Leaderboard</span></button>
+          <button disabled={disabled || !interactive} onClick={onShowLeaderboard} type="button"><span>LEADERBOARD</span></button>
         </div>
       )}
     </section>

@@ -9,6 +9,7 @@ import dotenv from 'dotenv';
 import { Server as SocketIOServer } from 'socket.io';
 import { questions as questionBank, quizConfig } from './src/data/questions.js';
 import { selectLevelQuestions } from './src/data/levelQuestions.js';
+import { getVisibleOptionCount, OPTION_REVEAL_INTERVAL_MS } from './src/utils/optionReveal.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,9 +31,9 @@ const io = new SocketIOServer(httpServer);
 const PORT = Number(process.env.PORT || 3002);
 const QUESTIONS_PER_RUN = quizConfig.questionCount;
 const LIFELINE_TYPES = ['audiencePoll', 'phoneAFriend', 'fiftyFifty'];
-const FEEDBACK_REVEAL_DELAY_MS = Number(process.env.FEEDBACK_REVEAL_DELAY_MS || 4000);
+const FEEDBACK_REVEAL_DELAY_MS = Number(process.env.FEEDBACK_REVEAL_DELAY_MS || 2000);
 const FEEDBACK_DELAY_MS = Number(process.env.FEEDBACK_DELAY_MS || 10000);
-const QUESTION_DURATION_MS = Number(process.env.QUESTION_DURATION_MS || 45000);
+const optionRevealIntervalMs = Math.max(1, Number(process.env.OPTION_REVEAL_INTERVAL_MS) || OPTION_REVEAL_INTERVAL_MS);
 const REGISTRATION_IDLE_TIMEOUT_MS = Number(process.env.REGISTRATION_IDLE_TIMEOUT_MS || 60000);
 const isProduction = process.argv.includes('--production');
 const isApiOnly = process.argv.includes('--api-only');
@@ -104,7 +105,6 @@ let stateWriteQueue = Promise.resolve();
 let statePersistenceError = null;
 let feedbackTimer = null;
 let advanceTimer = null;
-let questionTimer = null;
 let registrationIdleTimer = null;
 const savedRunIds = new Set();
 const pendingResults = new Map(await readPendingResults());
@@ -194,8 +194,10 @@ function createIdleState() {
     outcome: null,
     playerName: '',
     questionStartedAt: null,
+    optionsRevealedAt: null,
+    optionRevealIntervalMs,
     questionDeadline: null,
-    questionRemainingMs: QUESTION_DURATION_MS,
+    questionRemainingMs: null,
     registrationExpiresAt: null,
     createdAt: null,
     updatedAt: new Date().toISOString(),
@@ -229,8 +231,10 @@ function createRegistrationState() {
     outcome: null,
     playerName: '',
     questionStartedAt: null,
+    optionsRevealedAt: null,
+    optionRevealIntervalMs,
     questionDeadline: null,
-    questionRemainingMs: QUESTION_DURATION_MS,
+    questionRemainingMs: null,
     registrationExpiresAt: now + REGISTRATION_IDLE_TIMEOUT_MS,
     createdAt: new Date(now).toISOString(),
     updatedAt: new Date(now).toISOString(),
@@ -280,15 +284,17 @@ async function loadQuizState() {
       return createIdleState();
     }
 
-    // Migrate sessions saved before the pauseable question timer was introduced.
-    if (restored.status === 'running' && !Object.hasOwn(saved, 'questionRemainingMs')) {
-      restored.questionRemainingMs = restored.phase === 'answering'
-        ? Math.max(0, QUESTION_DURATION_MS - (Date.now() - (restored.questionStartedAt || Date.now())))
-        : QUESTION_DURATION_MS;
-      restored.questionDeadline = restored.phase === 'answering'
-        ? Date.now() + restored.questionRemainingMs
+    // Old unanswered questions need the new reveal button; preserve visible options
+    // if an answer or lifeline was already in progress.
+    if (restored.status === 'running' && !Object.hasOwn(saved, 'optionsRevealedAt')) {
+      restored.optionsRevealedAt = restored.phase !== 'answering' || restored.eliminatedOptionIds.length > 0
+        ? Date.now() - restored.questions[restored.questionIndex].options.length * optionRevealIntervalMs
         : null;
     }
+
+    // Old saved deadlines must not expire a game after the question limit was removed.
+    restored.questionDeadline = null;
+    restored.questionRemainingMs = null;
     return restored;
   } catch (error) {
     if (error.code !== 'ENOENT') {
@@ -333,31 +339,10 @@ if (quizState.runId && quizState.resultSavedAt) {
 }
 
 function clearQuizTimers() {
-  clearTimeout(questionTimer);
   clearTimeout(feedbackTimer);
   clearTimeout(advanceTimer);
   feedbackTimer = null;
   advanceTimer = null;
-  questionTimer = null;
-}
-
-function expireQuestionIfDue() {
-  if (quizState.status !== 'running' || quizState.phase !== 'answering') return false;
-  if (quizState.questionDeadline > Date.now()) return false;
-  finishRun(createOutcome({ failedLevel: quizState.questionIndex + 1 }), { timedOut: true });
-  return true;
-}
-
-function scheduleQuestionTimer() {
-  clearTimeout(questionTimer);
-  questionTimer = null;
-  if (quizState.status !== 'running' || quizState.phase !== 'answering') return;
-  const expectedRunId = quizState.runId;
-  const expectedQuestionIndex = quizState.questionIndex;
-  questionTimer = setTimeout(() => {
-    if (quizState.runId !== expectedRunId || quizState.questionIndex !== expectedQuestionIndex) return;
-    if (!expireQuestionIfDue()) scheduleQuestionTimer();
-  }, Math.max(0, quizState.questionDeadline - Date.now()));
 }
 
 function clearRegistrationIdleTimer() {
@@ -467,6 +452,22 @@ function createOutcome({ isChampion = false, failedLevel = null } = {}) {
   };
 }
 
+function showOptions(payload = {}) {
+  if (quizState.status !== 'running' || quizState.phase !== 'answering'
+    || payload?.sessionId !== quizState.runId || payload?.questionId !== currentQuestion()?.id) {
+    return { ok: false, message: 'This question is no longer available for revealing options.' };
+  }
+  if (quizState.optionsRevealedAt != null) {
+    return { ok: false, message: 'The options have already been revealed.' };
+  }
+  setQuizState({ ...quizState, optionsRevealedAt: Date.now(), optionRevealIntervalMs });
+  return { ok: true };
+}
+
+function areOptionsReady() {
+  return getVisibleOptionCount(quizState) === currentQuestion()?.options.length;
+}
+
 function selectOption(optionId) {
   const question = currentQuestion();
 
@@ -478,8 +479,9 @@ function selectOption(optionId) {
     return { ok: false, message: 'An answer cannot be selected in the current game phase.' };
   }
 
-  if (expireQuestionIfDue()) return { ok: false, message: 'Time is up for this question.' };
-
+  if (!areOptionsReady()) {
+    return { ok: false, message: 'Show all options before answering or using a lifeline.' };
+  }
   if (quizState.activeLifeline) {
     return { ok: false, message: 'Finish the active lifeline before selecting an answer.' };
   }
@@ -491,16 +493,9 @@ function selectOption(optionId) {
     return { ok: false, message: 'That option is not valid for the current question.' };
   }
 
-  const remainingMs = Math.max(0, quizState.questionDeadline - Date.now());
-  if (remainingMs === 0) {
-    expireQuestionIfDue();
-    return { ok: false, message: 'Time is up for this question.' };
-  }
-  clearTimeout(questionTimer);
-  questionTimer = null;
   setQuizState({
     ...quizState,
-    questionRemainingMs: remainingMs,
+    questionRemainingMs: null,
     questionDeadline: null,
     selectedOption: optionId,
     phase: 'confirming',
@@ -519,13 +514,12 @@ function goBack() {
     ...quizState,
     selectedOption: null,
     phase: 'answering',
-    questionDeadline: Date.now() + quizState.questionRemainingMs,
+    questionDeadline: null,
   });
-  scheduleQuestionTimer();
   return { ok: true };
 }
 
-function finishRun(outcome, { timedOut = false } = {}) {
+function finishRun(outcome) {
   clearQuizTimers();
   const completedAt = new Date().toISOString();
   setQuizState({
@@ -533,7 +527,7 @@ function finishRun(outcome, { timedOut = false } = {}) {
     status: 'finished',
     phase: null,
     questionDeadline: null,
-    questionRemainingMs: timedOut ? 0 : quizState.questionRemainingMs,
+    questionRemainingMs: null,
     feedbackVisible: true,
     feedbackRevealAt: null,
     feedbackEndsAt: null,
@@ -600,10 +594,11 @@ function advanceAfterFeedback(expectedRunId, expectedQuestionIndex) {
     eliminatedOptionIds: [],
     activeLifeline: null,
     questionStartedAt: Date.now(),
-    questionDeadline: Date.now() + QUESTION_DURATION_MS,
-    questionRemainingMs: QUESTION_DURATION_MS,
+    optionsRevealedAt: null,
+    optionRevealIntervalMs,
+    questionDeadline: null,
+    questionRemainingMs: null,
   });
-  scheduleQuestionTimer();
 }
 
 function continueFeedback(payload = {}) {
@@ -693,7 +688,9 @@ function useLifeline(type) {
   if (quizState.status !== 'running' || quizState.phase !== 'answering') {
     return { ok: false, message: 'Lifelines can only be used before selecting an answer.' };
   }
-  if (expireQuestionIfDue()) return { ok: false, message: 'Time is up for this question.' };
+  if (!areOptionsReady()) {
+    return { ok: false, message: 'Show all options before answering or using a lifeline.' };
+  }
   if (quizState.activeLifeline) {
     return { ok: false, message: 'Finish the active lifeline before using another one.' };
   }
@@ -782,11 +779,12 @@ function submitPlayerName() {
     status: 'running',
     phase: 'answering',
     questionStartedAt: Date.now(),
-    questionDeadline: Date.now() + QUESTION_DURATION_MS,
-    questionRemainingMs: QUESTION_DURATION_MS,
+    optionsRevealedAt: null,
+    optionRevealIntervalMs,
+    questionDeadline: null,
+    questionRemainingMs: null,
     registrationExpiresAt: null,
   });
-  scheduleQuestionTimer();
   return { ok: true };
 }
 
@@ -852,6 +850,10 @@ io.on('connection', (socket) => {
     });
   });
 
+  socket.on('show_options', (payload, acknowledge) => {
+    requireOperatorSocket(socket, acknowledge, () => showOptions(payload));
+  });
+
   socket.on('select_option', (payload, acknowledge) => {
     const optionId = typeof payload?.optionId === 'string' ? payload.optionId : '';
     requireOperatorSocket(socket, acknowledge, () => selectOption(optionId));
@@ -909,8 +911,6 @@ if (quizState.status === 'registering') {
   scheduleRegistrationIdleTimer();
 } else if (quizState.status === 'running' && ['locked', 'feedback'].includes(quizState.phase)) {
   scheduleLockedAnswer(quizState.runId, quizState.questionIndex);
-} else if (quizState.status === 'running' && quizState.phase === 'answering') {
-  scheduleQuestionTimer();
 } else if (quizState.status === 'finished' && !quizState.resultSavedAt) {
   void saveCompletedRun(quizState);
 }
@@ -950,6 +950,7 @@ function performGameAction(action, payload = {}) {
     case 'name_update': return updatePlayerName(payload.name);
     case 'name_submit': return submitPlayerName();
     case 'registration_back': return leaveRegistration();
+    case 'show_options': return showOptions(payload);
     case 'select_option': return selectOption(payload.optionId);
     case 'answer_back': return goBack();
     case 'lock_answer': return lockAnswer();

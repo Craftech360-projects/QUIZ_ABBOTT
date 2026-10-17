@@ -72,6 +72,13 @@ export function useQuizSocket({ operator = false } = {}) {
     });
   }, []);
 
+  const showOptions = useCallback(() => {
+    emitAction('show_options', {
+      sessionId: quizState?.sessionId,
+      questionId: quizState?.questions?.[quizState.questionIndex]?.id,
+    });
+  }, [emitAction, quizState]);
+
   const selectOption = useCallback((optionId) => {
     emitAction('select_option', { optionId });
   }, [emitAction]);
@@ -158,6 +165,7 @@ export function useQuizSocket({ operator = false } = {}) {
     isPending,
     error,
     selectOption,
+    showOptions,
     goBack,
     lockAnswer,
     continueFeedback,

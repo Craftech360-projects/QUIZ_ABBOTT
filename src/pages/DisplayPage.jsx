@@ -1,3 +1,4 @@
+import EventMusic from '../components/EventMusic.jsx';
 import {
   EventLoadingView,
   EventQuestionView,
@@ -8,7 +9,14 @@ import { useQuizSocket } from '../hooks/useQuizSocket.js';
 import RegistrationPage from './RegistrationPage.jsx';
 
 export default function DisplayPage() {
-  const { quizState, isConnected } = useQuizSocket();
+  const quiz = useQuizSocket();
+  return <>
+    <EventMusic quizState={quiz.quizState} />
+    <DisplayView {...quiz} />
+  </>;
+}
+
+function DisplayView({ quizState, isConnected }) {
 
   if (!quizState) {
     return <EventLoadingView message={isConnected ? 'Loading the game…' : 'Connecting to the quiz…'} />;

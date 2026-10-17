@@ -14,6 +14,8 @@ npm install
 npm start
 ```
 
+For local editing, use `npm run dev`. It automatically reloads the frontend and restarts the server when server code, question data, or reveal timing changes, restoring the saved game.
+
 The operator screen works directly at `/operator`; no browser token is required. The server still supports an `OPERATOR_TOKEN` for programmatic access to the operator HTTP API.
 
 The server listens on `0.0.0.0`, so another screen on the same network can use the host laptop's LAN IP. Allow incoming connections through the laptop firewall if prompted.
@@ -22,13 +24,18 @@ The server listens on `0.0.0.0`, so another screen on the same network can use t
 
 - Each run contains eight levels, selecting one random question from each corresponding level pool in `UMC_Level 1_8.xlsx`. Levels remain in order; options are shuffled and selections are saved for reconnects.
 - The imported bank contains 346 questions: 50 each for levels 1–5, 43 for level 6, 24 for level 7, and 29 for level 8. See [question-bank notes](docs/question-bank.md) for source counts and answer-key inconsistencies. Missing questions and explanations are not invented.
+- Each question starts with a blank options area on both screens. The operator’s white **Show options** button reveals A immediately, then B, C, and D half a second apart with a fade-and-rise animation. Selection and lifelines unlock once all four are visible. The shared reveal timestamp survives reconnects and server restarts; each new question resets it.
 - Selecting an option opens the confirmation step. `Go Back` clears the selection. `Lock Answer` validates it once and prevents duplicate submissions.
-- Each question has a server-enforced 45-second deadline. Selecting an option pauses the remaining time indefinitely during confirmation; `Go Back` resumes that remainder. Expiry without a selection ends the run with the appropriate existing milestone/participation screen. Deadlines and paused time survive reconnects and server restarts.
-- The bottom-left `?` on the operator screen opens a private correct-answer popup matching Frame 14. It does not appear on the audience display or pause the question timer; closing it returns to the question.
+- Questions have no time limit or countdown. Players stay on the question until they select and lock an answer. Saved games from the old timed version resume without a deadline. Completed levels and the current level remain pale on the level ladder.
+- The bottom-left `?` on the operator screen opens a private correct-answer popup matching Frame 14. It does not appear on the audience display; closing it returns to the question.
 - A correct locked answer advances to the next level after feedback.
 - During feedback, the operator can click `Next Question` or `View Result` to continue immediately. Otherwise, feedback advances automatically after 10 seconds. Both screens stay synchronized.
-- An incorrect locked answer or unanswered-question timeout ends the run. With 0–3 correct answers, only the thank-you-for-participating screen is shown, without congratulations or a level number. With 4–7 correct answers, congratulations shows the exact number of completed levels (for example, failing Question 8 shows Level 7). Completing all 8 levels shows the existing Urban Mobility Champion screen.
+- An incorrect locked answer ends the run. With 0–3 correct answers, only the thank-you-for-participating screen is shown, without congratulations or a level number. With 4–7 correct answers, congratulations shows the exact number of completed levels (for example, failing Question 8 shows Level 7). Completing all 8 levels shows the existing Urban Mobility Champion screen.
 - Audience Poll, Phone-A-Friend, and 50:50 are single-use per run. 50:50 removes two incorrect choices. The other two lifelines synchronize an active state for the live operator and display, but do not fabricate poll percentages, recommendations, or phone timing because the supplied specification does not define those behaviors.
+
+Music is bundled from `music/`. The start screen is silent; clicking Start begins `Start Track.mp3` during registration. The leaderboard also loops this track. Each new question plays `Question tension track.mp3` once, followed by `_Kbc_Clock_timer_With questions.mp3` looping while answering or confirming (without a countdown). Lock Answer stops the question music immediately; it stays silent through the answer reveal and feedback. Car Pool and Bike Share loop `Car pool_Audience Poll.mp3` until Done; Solar Boost plays `50_50.mp3` once, then returns to the question music; Go Back does not replay the cue. Finished games play `Game End.mp3` once, then remain silent. Changing screens or lifelines replaces the previous track without overlapping playback.
+
+Game music starts on the operator screen after clicking Start. The audience display starts muted to avoid playing two copies; use its **Enable sound** button if that screen supplies the speakers, and mute the operator screen. If the browser blocks autoplay after a refresh, **Enable sound** starts playback. Background tracks repeat at their natural end for as long as their state remains active; the question introduction, 50:50 cue, and Game End track play once.
 
 The application records the completed level without assigning monetary prizes or other rewards.
 
@@ -54,9 +61,8 @@ SUPABASE_SERVICE_ROLE_KEY=
 SUPABASE_TABLE=ABBOTT_QUIZ
 GAME_STATE_FILE=.quiz-session.json
 SESSION_HISTORY_FILE=quiz-sessions.jsonl
-FEEDBACK_REVEAL_DELAY_MS=4000
+FEEDBACK_REVEAL_DELAY_MS=2000
 FEEDBACK_DELAY_MS=10000
-QUESTION_DURATION_MS=45000
 REGISTRATION_IDLE_TIMEOUT_MS=60000
 ```
 
@@ -71,7 +77,7 @@ Do not expose `SUPABASE_SERVICE_ROLE_KEY` or commit `.env.local`.
 - `GET /api/results`: leaderboard results.
 - `POST /api/results`: legacy result submission with score validation.
 
-Operator HTTP endpoints require `Authorization: Bearer <OPERATOR_TOKEN>`. Socket operator actions use the same token during the Socket.IO handshake. Supported socket actions are `start`, `name_update`, `name_submit`, `registration_back`, `select_option`, `answer_back`, `lock_answer`, `continue_feedback`, `use_lifeline`, `dismiss_lifeline`, and `restart`. `continue_feedback` requires the current `sessionId` and `questionId` to reject stale clicks.
+Operator HTTP endpoints require `Authorization: Bearer <OPERATOR_TOKEN>`. Socket operator actions use the same token during the Socket.IO handshake. Supported socket actions are `start`, `name_update`, `name_submit`, `registration_back`, `show_options`, `select_option`, `answer_back`, `lock_answer`, `continue_feedback`, `use_lifeline`, `dismiss_lifeline`, and `restart`. `show_options` and `continue_feedback` require the current `sessionId` and `questionId` to reject stale clicks.
 
 ## Verification
 

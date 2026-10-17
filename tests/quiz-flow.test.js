@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer as createHttpServer } from 'node:http';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { io as createSocket } from 'socket.io-client';
 import { questions, quizConfig } from '../src/data/questions.js';
 import { createLevelPools, selectLevelQuestions } from '../src/data/levelQuestions.js';
+import { getVisibleOptionCount, OPTION_REVEAL_INTERVAL_MS } from '../src/utils/optionReveal.js';
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(testDirectory, '..');
@@ -131,6 +132,7 @@ async function startServer({
   feedbackRevealDelayMs = 5,
   feedbackDelayMs = 100,
   questionDurationMs = 45000,
+  optionRevealIntervalMs = 5,
   resultsStorage = 'csv',
   supabaseTestUrl = '',
 }) {
@@ -149,6 +151,7 @@ async function startServer({
       FEEDBACK_REVEAL_DELAY_MS: String(feedbackRevealDelayMs),
       FEEDBACK_DELAY_MS: String(feedbackDelayMs),
       QUESTION_DURATION_MS: String(questionDurationMs),
+      OPTION_REVEAL_INTERVAL_MS: String(optionRevealIntervalMs),
       REGISTRATION_IDLE_TIMEOUT_MS: '10000',
       SUPABASE_URL: supabaseTestUrl,
       SUPABASE_SERVICE_ROLE_KEY: supabaseTestUrl ? 'isolated-test-key' : '',
@@ -189,15 +192,32 @@ async function stopServer(child) {
   ]);
 }
 
-async function startRun(operator, operatorTracker, name) {
+async function startRun(operator, operatorTracker, name, { revealOptions = true } = {}) {
   assert.deepEqual(await emitAction(operator, 'start'), { ok: true });
   await operatorTracker.waitFor((state) => state.status === 'registering');
   assert.equal((await emitAction(operator, 'name_update', { name })).ok, true);
   assert.deepEqual(await emitAction(operator, 'name_submit'), { ok: true });
-  return operatorTracker.waitFor((state) => state.status === 'running' && state.phase === 'answering');
+  await operatorTracker.waitFor((state) => state.status === 'running' && state.phase === 'answering');
+  if (revealOptions) await revealCurrentOptions(operator, operatorTracker);
+  return operatorTracker.current;
+}
+
+async function revealCurrentOptions(operator, tracker) {
+  let state = tracker.current;
+  if (state.optionsRevealedAt == null) {
+    assert.equal((await emitAction(operator, 'show_options', {
+      sessionId: state.sessionId,
+      questionId: state.questions[state.questionIndex].id,
+    })).ok, true);
+    state = await tracker.waitFor((next) => next.optionsRevealedAt != null);
+  }
+  const readyAt = state.optionsRevealedAt
+    + (state.questions[state.questionIndex].options.length - 1) * state.optionRevealIntervalMs;
+  await new Promise((resolve) => setTimeout(resolve, Math.max(0, readyAt - Date.now()) + 10));
 }
 
 async function answerCurrentLevel({ correct, correctAnswers, operator, tracker }) {
+  await revealCurrentOptions(operator, tracker);
   const state = tracker.current;
   const question = state.questions[state.questionIndex];
   const correctOptionId = correctAnswers.get(question.id);
@@ -232,6 +252,72 @@ async function playUntilOutcome({ correctLevels, correctAnswers, operator, track
   await answerCurrentLevel({ correct: false, correctAnswers, operator, tracker });
   return tracker.waitFor((state) => state.status === 'finished');
 }
+
+test('options appear A to D at exact half-second boundaries', () => {
+  const state = { questions: [{ options: ['a', 'b', 'c', 'd'] }], questionIndex: 0, optionsRevealedAt: null };
+  assert.equal(OPTION_REVEAL_INTERVAL_MS, 500);
+  assert.equal(getVisibleOptionCount(state, 90000), 0);
+  state.optionsRevealedAt = 10000;
+  for (const [elapsed, count] of [[-1, 0], [0, 1], [499, 1], [500, 2], [999, 2], [1000, 3], [1499, 3], [1500, 4], [90000, 4]]) {
+    assert.equal(getVisibleOptionCount(state, 10000 + elapsed), count);
+  }
+});
+
+test('operator reveals shared options, persists progress, and each next question starts hidden', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'quiz-option-reveal-'));
+  const options = {
+    port: await getFreePort(), stateFile: path.join(directory, 'state.json'),
+    resultsFile: path.join(directory, 'results.csv'), sessionHistoryFile: path.join(directory, 'sessions.jsonl'),
+    optionRevealIntervalMs: 500, feedbackDelayMs: 10000,
+  };
+  let server = await startServer(options);
+  let operator = await connectSocket(server.baseUrl, { operatorToken });
+  let display = await connectSocket(server.baseUrl);
+  t.after(async () => {
+    operator.socket.close(); display.socket.close(); await stopServer(server.child);
+  });
+  const state = await startRun(operator.socket, operator.tracker, 'Reveal Test', { revealOptions: false });
+  const question = state.questions[0];
+  const payload = { sessionId: state.sessionId, questionId: question.id };
+  assert.equal(state.optionsRevealedAt, null);
+  await display.tracker.waitFor((next) => next.status === 'running');
+  assert.equal(display.tracker.current.optionsRevealedAt, null);
+  assert.equal((await emitAction(operator.socket, 'select_option', { optionId: question.options[0].id })).ok, false);
+  assert.equal((await emitAction(operator.socket, 'use_lifeline', { type: 'fiftyFifty' })).ok, false);
+  assert.equal((await emitAction(display.socket, 'show_options', payload)).ok, false);
+  assert.equal((await emitAction(operator.socket, 'show_options', { ...payload, questionId: 'stale' })).ok, false);
+  assert.equal((await emitAction(operator.socket, 'show_options', payload)).ok, true);
+  const revealing = await operator.tracker.waitFor((next) => next.optionsRevealedAt != null);
+  const displayRevealing = await display.tracker.waitFor((next) => next.optionsRevealedAt != null);
+  assert.equal(displayRevealing.optionsRevealedAt, revealing.optionsRevealedAt);
+  assert.equal(revealing.optionRevealIntervalMs, 500);
+  assert.equal(getVisibleOptionCount(revealing), 1);
+  assert.equal((await emitAction(operator.socket, 'show_options', payload)).ok, false);
+  assert.equal(operator.tracker.current.optionsRevealedAt, revealing.optionsRevealedAt);
+  assert.equal((await emitAction(operator.socket, 'select_option', { optionId: question.options[0].id })).ok, false);
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.equal(getVisibleOptionCount(display.tracker.current), 2);
+  operator.socket.close(); display.socket.close(); await stopServer(server.child);
+  server = await startServer(options);
+  operator = await connectSocket(server.baseUrl, { operatorToken });
+  display = await connectSocket(server.baseUrl);
+  await operator.tracker.waitFor((next) => next.sessionId === state.sessionId);
+  await display.tracker.waitFor((next) => next.sessionId === state.sessionId);
+  assert.equal(operator.tracker.current.optionsRevealedAt, revealing.optionsRevealedAt);
+  assert.equal(display.tracker.current.optionsRevealedAt, revealing.optionsRevealedAt);
+  await revealCurrentOptions(operator.socket, operator.tracker);
+  assert.equal(getVisibleOptionCount(display.tracker.current), 4);
+  assert.equal((await emitAction(operator.socket, 'select_option', { optionId: question.options[0].id })).ok, true);
+  assert.equal((await emitAction(operator.socket, 'answer_back')).ok, true);
+  assert.equal(operator.tracker.current.optionsRevealedAt, revealing.optionsRevealedAt);
+  await answerCurrentLevel({ correct: true, correctAnswers: await loadCorrectAnswers(), operator: operator.socket, tracker: operator.tracker });
+  assert.equal((await emitAction(operator.socket, 'continue_feedback', payload)).ok, true);
+  const next = await operator.tracker.waitFor((entry) => entry.questionIndex === 1);
+  const displayNext = await display.tracker.waitFor((entry) => entry.questionIndex === 1);
+  assert.equal(next.optionsRevealedAt, null);
+  assert.equal(displayNext.optionsRevealedAt, null);
+  assert.equal((await emitAction(operator.socket, 'show_options', payload)).ok, false);
+});
 
 test('eight-level operator/display game flow, lifelines, outcomes, authorization, and recovery', async (t) => {
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'quiz-abbott-test-'));
@@ -611,8 +697,8 @@ test('recovers confirming and locked phases without operator/display divergence'
   assert.equal(recoveredDisplay.revision, state.revision);
 });
 
-test('question timer pauses indefinitely, resumes its remainder, and answer help stays private', async (t) => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'quiz-timer-test-'));
+test('questions and confirmation have no deadline, survive restart, and answer help stays private', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'quiz-untimed-test-'));
   const options = {
     port: await getFreePort(),
     stateFile: path.join(directory, 'state.json'),
@@ -629,11 +715,11 @@ test('question timer pauses indefinitely, resumes its remainder, and answer help
     await stopServer(server.child);
   });
 
-  const initial = await startRun(operator.socket, operator.tracker, 'Paused Timer');
+  const initial = await startRun(operator.socket, operator.tracker, 'Untimed Player');
   const question = initial.questions[0];
   const payload = { sessionId: initial.sessionId, questionId: question.id };
-  assert.equal(initial.questionRemainingMs, options.questionDurationMs);
-  assert.ok(initial.questionDeadline - initial.serverNow <= options.questionDurationMs);
+  assert.equal(initial.questionRemainingMs, null);
+  assert.equal(initial.questionDeadline, null);
   const correctAnswers = await loadCorrectAnswers();
   const privateAnswer = await emitAction(operator.socket, 'get_operator_answer', payload);
   assert.deepEqual(privateAnswer.correctOptionIds, [correctAnswers.get(question.id)]);
@@ -646,11 +732,12 @@ test('question timer pauses indefinitely, resumes its remainder, and answer help
   await display.tracker.waitFor((state) => state.sessionId === initial.sessionId);
   assert.ok(display.tracker.current.questions.every((entry) => !entry.correctOptionIds));
 
-  await new Promise((resolve) => setTimeout(resolve, 200));
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  assert.equal(operator.tracker.current.phase, 'answering');
   assert.equal((await emitAction(operator.socket, 'select_option', { optionId: question.options[0].id })).ok, true);
   const paused = await operator.tracker.waitFor((state) => state.phase === 'confirming');
   assert.equal(paused.questionDeadline, null);
-  assert.ok(paused.questionRemainingMs > 0 && paused.questionRemainingMs < 850);
+  assert.equal(paused.questionRemainingMs, null);
   operator.socket.close();
   display.socket.close();
   await stopServer(server.child);
@@ -663,22 +750,26 @@ test('question timer pauses indefinitely, resumes its remainder, and answer help
   assert.equal(restored.questionRemainingMs, paused.questionRemainingMs);
   assert.equal(restored.questionDeadline, null);
 
-  const resumedAt = Date.now();
   assert.equal((await emitAction(operator.socket, 'answer_back')).ok, true);
   const resumed = await operator.tracker.waitFor((state) => state.phase === 'answering');
-  assert.ok(Math.abs(resumed.questionDeadline - resumedAt - paused.questionRemainingMs) < 100);
-  const finished = await operator.tracker.waitFor((state) => state.status === 'finished');
-  assert.equal(finished.outcome.type, 'eliminated');
-  assert.equal(finished.outcome.awardedLevel, 0);
-  assert.equal(finished.questionRemainingMs, 0);
-  assert.equal(finished.answers.length, 0);
-  assert.equal((await emitAction(operator.socket, 'select_option', { optionId: question.options[0].id })).ok, false);
-  const displayFinished = await display.tracker.waitFor((state) => state.status === 'finished');
-  assert.deepEqual(displayFinished.outcome, finished.outcome);
+  assert.equal(resumed.questionDeadline, null);
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  assert.equal(operator.tracker.current.status, 'running');
+  assert.equal(operator.tracker.current.answers.length, 0);
+  assert.equal((await emitAction(operator.socket, 'use_lifeline', { type: 'audiencePoll' })).ok, true);
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  assert.equal((await emitAction(operator.socket, 'dismiss_lifeline')).ok, true);
+  assert.equal((await emitAction(operator.socket, 'select_option', { optionId: correctAnswers.get(question.id) })).ok, true);
+  assert.equal((await emitAction(operator.socket, 'lock_answer')).ok, true);
+  const next = await operator.tracker.waitFor((state) => state.questionIndex === 1);
+  assert.equal(next.questionDeadline, null);
+  assert.equal(next.questionRemainingMs, null);
+  const displayNext = await display.tracker.waitFor((state) => state.questionIndex === 1);
+  assert.equal(displayNext.phase, 'answering');
 });
 
-test('timeouts show participation below four correct answers and exact levels above, including after restart', async (t) => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'quiz-timeout-milestones-'));
+test('saved games with expired legacy deadlines resume without ending at any milestone', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'quiz-untimed-migration-'));
   const options = {
     port: await getFreePort(),
     stateFile: path.join(directory, 'state.json'),
@@ -691,29 +782,38 @@ test('timeouts show participation below four correct answers and exact levels ab
   t.after(async () => { operator.socket.close(); await stopServer(server.child); });
   const correctAnswers = await loadCorrectAnswers();
 
-  for (const completedLevels of [1, 2, 3, 4, 5, 6, 7]) {
-    await startRun(operator.socket, operator.tracker, `Timeout Level ${completedLevels}`);
+  for (const completedLevels of [0, 4, 7]) {
+    await startRun(operator.socket, operator.tracker, `Saved Level ${completedLevels}`);
     for (let index = 0; index < completedLevels; index += 1) {
       await answerCurrentLevel({ correct: true, correctAnswers, operator: operator.socket, tracker: operator.tracker });
       await operator.tracker.waitFor((state) => state.phase === 'answering' && state.questionIndex === index + 1);
     }
     const state = operator.tracker.current;
-    if (completedLevels === 7) {
-      // An offline server cannot give an expired question a fresh deadline on restart.
-      operator.socket.close();
-      await stopServer(server.child);
-      await new Promise((resolve) => setTimeout(resolve, 1100));
-      server = await startServer(options);
-      operator = await connectSocket(server.baseUrl, { operatorToken });
-    }
-    const finished = await operator.tracker.waitFor((next) => next.status === 'finished');
-    assert.equal(finished.sessionId, state.sessionId);
-    assert.equal(finished.outcome.type, completedLevels >= 4 ? 'milestone' : 'eliminated');
-    assert.equal(finished.outcome.awardedLevel, completedLevels >= 4 ? completedLevels : 0);
-    assert.equal(finished.outcome.failedLevel, completedLevels + 1);
-    assert.equal(finished.completedLevel, completedLevels);
-    assert.equal(finished.score, completedLevels);
-    assert.equal(finished.answers.length, completedLevels);
+    // Persist a deadline from the old version, already more than 45 seconds overdue.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    operator.socket.close();
+    await stopServer(server.child);
+    const saved = JSON.parse(await readFile(options.stateFile, 'utf8'));
+    saved.questionStartedAt = Date.now() - 90000;
+    saved.questionDeadline = Date.now() - 45000;
+    saved.questionRemainingMs = 0;
+    delete saved.optionsRevealedAt;
+    delete saved.optionRevealIntervalMs;
+    await writeFile(options.stateFile, JSON.stringify(saved));
+    server = await startServer(options);
+    operator = await connectSocket(server.baseUrl, { operatorToken });
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    const restored = operator.tracker.current;
+    assert.equal(restored.sessionId, state.sessionId);
+    assert.equal(restored.status, 'running');
+    assert.equal(restored.phase, 'answering');
+    assert.equal(restored.questionIndex, completedLevels);
+    assert.equal(restored.questionDeadline, null);
+    assert.equal(restored.questionRemainingMs, null);
+    assert.equal(restored.optionsRevealedAt, null, 'Old unanswered sessions must offer Show options');
+    assert.equal(restored.answers.length, completedLevels);
+    await answerCurrentLevel({ correct: false, correctAnswers, operator: operator.socket, tracker: operator.tracker });
+    await operator.tracker.waitFor((next) => next.status === 'finished');
     assert.equal((await emitAction(operator.socket, 'restart')).ok, true);
   }
 });

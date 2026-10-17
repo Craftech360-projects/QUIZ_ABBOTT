@@ -1,3 +1,4 @@
+import EventMusic from '../components/EventMusic.jsx';
 import {
   EventLoadingView,
   EventQuestionView,
@@ -8,26 +9,34 @@ import { useQuizSocket } from '../hooks/useQuizSocket.js';
 import RegistrationPage from './RegistrationPage.jsx';
 
 export default function OperatorPage() {
-  const {
-    quizState,
-    isConnected,
-    isOperatorAuthorized,
-    isPending,
-    error,
-    selectOption,
-    goBack,
-    lockAnswer,
-    continueFeedback,
-    requestOperatorAnswer,
-    useLifeline,
-    dismissLifeline,
-    start,
-    updateName,
-    submitName,
-    registrationBack,
-    restart,
-    showLeaderboard,
-  } = useQuizSocket({ operator: true });
+  const quiz = useQuizSocket({ operator: true });
+  return <>
+    <EventMusic quizState={quiz.quizState} defaultEnabled />
+    <OperatorView {...quiz} />
+  </>;
+}
+
+function OperatorView({
+  quizState,
+  isConnected,
+  isOperatorAuthorized,
+  isPending,
+  error,
+  selectOption,
+  showOptions,
+  goBack,
+  lockAnswer,
+  continueFeedback,
+  requestOperatorAnswer,
+  useLifeline,
+  dismissLifeline,
+  start,
+  updateName,
+  submitName,
+  registrationBack,
+  restart,
+  showLeaderboard,
+}) {
   const canOperate = isConnected && isOperatorAuthorized;
 
   if (!quizState) {
@@ -79,6 +88,7 @@ export default function OperatorPage() {
       quizState={quizState}
       requestOperatorAnswer={requestOperatorAnswer}
       selectOption={selectOption}
+      showOptions={showOptions}
       useLifeline={useLifeline}
     />
   );

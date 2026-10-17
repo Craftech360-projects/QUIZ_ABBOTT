@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
-import { questions, quizConfig } from '../data/questions.js';
+import { questions } from '../data/questions.js';
 import { useCurrentParticipant } from '../hooks/useCurrentParticipant.js';
 import { getParticipantOptions, getParticipantQuestions, updateParticipantAnswer } from '../utils/storage.js';
 import quizArtwork from '../images/fp3.png';
@@ -14,16 +14,9 @@ export default function QuizPage() {
   const { participant, refreshParticipant } = useCurrentParticipant();
   const [feedbackOptionIds, setFeedbackOptionIds] = useState([]);
   const [revealedQuestionNumber, setRevealedQuestionNumber] = useState(null);
-  const [timerState, setTimerState] = useState(() => ({
-    questionNumber,
-    seconds: quizConfig.secondsPerQuestion,
-  }));
   const feedbackTimeoutRef = useRef(null);
   const advancedQuestionRef = useRef(null);
   const currentIndex = Number(questionNumber) - 1;
-  const timeLeft = timerState.questionNumber === questionNumber
-    ? timerState.seconds
-    : quizConfig.secondsPerQuestion;
   const areOptionsVisible = revealedQuestionNumber === questionNumber;
   const quizQuestions = useMemo(() => getParticipantQuestions(participant, questions), [participant]);
   const question = quizQuestions[currentIndex];
@@ -60,10 +53,6 @@ export default function QuizPage() {
   useEffect(() => {
     advancedQuestionRef.current = null;
     setFeedbackOptionIds([]);
-    setTimerState({
-      questionNumber,
-      seconds: quizConfig.secondsPerQuestion,
-    });
 
     return () => {
       window.clearTimeout(feedbackTimeoutRef.current);
@@ -77,32 +66,6 @@ export default function QuizPage() {
 
     return () => window.clearTimeout(revealTimerId);
   }, [questionNumber]);
-
-  useEffect(() => {
-    if (!participant || !question || feedbackOptionIds.length > 0) return undefined;
-
-    const timerId = window.setTimeout(() => {
-      setTimerState((current) => {
-        if (current.questionNumber !== questionNumber) return current;
-
-        if (current.seconds <= 1) {
-          goNext(questionNumber);
-
-          return {
-            questionNumber,
-            seconds: 0,
-          };
-        }
-
-        return {
-          questionNumber,
-          seconds: Math.max(0, current.seconds - 1),
-        };
-      });
-    }, 1000);
-
-    return () => window.clearTimeout(timerId);
-  }, [feedbackOptionIds.length, goNext, participant, question, questionNumber, timeLeft]);
 
   if (!participant) {
     return <Navigate to="/" replace />;
@@ -212,10 +175,6 @@ export default function QuizPage() {
             ))}
           </div>
 
-          <div className="quiz-timer" aria-label={`${timeLeft} seconds remaining`}>
-            <span aria-hidden="true"><i /></span>
-            <strong>00:{String(timeLeft).padStart(2, '0')}</strong>
-          </div>
         </div>
 
         <div className="question-panel">
