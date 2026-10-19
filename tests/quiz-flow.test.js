@@ -132,7 +132,7 @@ async function startServer({
   answerRevealDurationMs = 100,
   questionDurationMs = 45000,
   optionRevealIntervalMs = 5,
-  resultsStorage = 'csv',
+  resultsStorage = '',
   supabaseTestUrl = '',
 }) {
   const child = spawn(process.execPath, ['server.js', '--api-only'], {
@@ -852,6 +852,58 @@ test('wrong answers show participation for levels 1–3 and congratulations for 
     const displayed = await display.tracker.waitFor((state) => state.sessionId === initial.sessionId && state.status === 'finished');
     assert.deepEqual(displayed.outcome, result.outcome);
     assert.equal((await emitAction(operator.socket, 'restart')).ok, true);
+  }
+});
+
+test('default and explicit CSV modes save locally without contacting configured Supabase', async (t) => {
+  let cloudRequests = 0;
+  const database = createHttpServer((req, res) => {
+    cloudRequests += 1;
+    res.writeHead(503);
+    res.end('{}');
+  });
+  t.after(() => new Promise((resolve) => database.close(resolve)));
+  await new Promise((resolve) => database.listen(0, '127.0.0.1', resolve));
+
+  for (const resultsStorage of ['', 'csv']) {
+    await t.test(resultsStorage || 'default storage', async (t) => {
+      const directory = await mkdtemp(path.join(os.tmpdir(), 'quiz-offline-test-'));
+      const options = {
+        port: await getFreePort(), stateFile: path.join(directory, 'state.json'),
+        resultsFile: path.join(directory, 'results.csv'),
+        sessionHistoryFile: path.join(directory, 'sessions.jsonl'),
+        resultsStorage, supabaseTestUrl: `http://127.0.0.1:${database.address().port}`,
+      };
+      let server = await startServer(options);
+      t.after(async () => { await stopServer(server.child); });
+      assert.deepEqual(await (await fetch(`${server.baseUrl}/api/results`)).json(), []);
+      const player = { name: 'Local, "Player"', email: 'offline@example.test', score: 7 };
+      const saved = await fetch(`${server.baseUrl}/api/results`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(player),
+      });
+      assert.equal(saved.status, 201);
+      const result = await saved.json();
+      assert.equal(result.name, player.name);
+      assert.equal(result.email, player.email);
+      assert.equal(result.score, player.score);
+      assert.ok(result.entryId);
+      assert.ok(result.completedAt);
+      const csv = await readFile(options.resultsFile, 'utf8');
+      assert.ok(csv.startsWith('entryId,name,email,score,completedAt\n'));
+      assert.ok(csv.includes('"Local, ""Player""",offline@example.test,7,'));
+
+      await stopServer(server.child);
+      server = await startServer(options);
+      const leaderboard = await (await fetch(`${server.baseUrl}/api/results`)).json();
+      assert.deepEqual(leaderboard, [{
+        entryId: result.entryId, name: player.name, score: player.score,
+        completedAt: result.completedAt,
+      }]);
+      assert.equal(await readFile(options.resultsFile, 'utf8'), csv);
+      assert.match(server.getOutput(), /Supabase disabled/);
+      assert.equal(cloudRequests, 0, 'CSV reads and writes must never contact Supabase');
+    });
   }
 });
 

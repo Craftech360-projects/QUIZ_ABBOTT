@@ -42,22 +42,27 @@ The application records the completed level without assigning monetary prizes or
 
 The active session is written atomically to `.quiz-session.json` by default and restored after a server restart. Completed sessions, including locked answers, lifeline usage, outcome, and timestamps, are appended to `quiz-sessions.jsonl`.
 
-Leaderboard results use the existing `ABBOTT_QUIZ` Supabase table by default. Its schema remains unchanged: `id`, `name`, `email`, `score`, and `created_at`. Both leaderboard views start empty and show only saved players, ranked by score descending (earlier completion wins ties). The top ten refresh every five seconds. There is no automatic CSV fallback. If Supabase is unavailable, the leaderboard reports an error and completed runs remain in a local recovery outbox (`.quiz-pending-results.json`) for automatic upload retries, including after restarting the server. A run-specific kiosk email prevents duplicate recovery inserts. `RESULTS_STORAGE=csv` is available only as an explicit offline/test mode; use `supabase` for the event.
+Leaderboard results are saved locally to `results.csv` by default, with columns `entryId`, `name`, `email`, `score`, and `completedAt`. The operator flow generates a run-specific kiosk email rather than collecting a player's email. Both leaderboard views read this file and show saved players ranked by score descending (earlier completion wins ties). The top ten refresh every five seconds. Supabase is disabled in CSV mode, even when its credentials are present. Failed saves remain in a local recovery outbox (`.quiz-pending-results.json`) for automatic retries, including after restarting the server. A run-specific kiosk email prevents duplicate recovery inserts. Keep one server process running and back up the CSV, session history, active session, and recovery outbox. Do not edit the live CSV while the server is running.
 
-To reset test leaderboard entries, run `node scripts/reset-leaderboard.mjs` for a read-only count. The explicit `--confirm-clear-current-leaderboard` flag first saves a private recovery copy in `.leaderboard-backups/`, then deletes only the snapshotted row IDs and verifies removal. Do not run this during an event. Nothing is seeded or cleared at server startup.
+For offline use, install dependencies with `npm ci` and prepare the frontend with `npm run build` before the event. Leave `VITE_API_URL` empty and run `npm run server` on the event laptop. Both routes work on that laptop without Wi-Fi; separate devices need the same local Wi-Fi or LAN and access to the laptop's port 3002, but no internet connection. Questions, images, fonts, and audio are bundled locally. The Node server must remain running.
+
+Supabase is optional and requires explicitly setting `RESULTS_STORAGE=supabase` and configuring credentials. Its existing `ABBOTT_QUIZ` schema remains unchanged. Existing cloud results are not downloaded to CSV, and CSV results are not automatically uploaded if you later enable Supabase.
+
+The `scripts/reset-leaderboard.mjs` utility only manages the optional Supabase leaderboard; it does not reset local CSV results. It runs a read-only count by default. The explicit `--confirm-clear-current-leaderboard` flag first saves a private recovery copy in `.leaderboard-backups/`, then deletes only the snapshotted row IDs and verifies removal. Do not run this during an event. Nothing is seeded or cleared at server startup.
 
 The checked-in `vercel.json` deploys only the static Vite frontend; it does not deploy `server.js`. The JSON/JSONL/CSV persistence is suitable only for one long-lived server process with a durable local disk. Do not use it as authoritative state on Vercel Functions or a multi-instance host: those environments require shared durable storage and cross-instance real-time fan-out.
 
-For a Vercel frontend with a separately hosted backend, run `node server.js --api-only` on one long-lived Node service with HTTPS, WebSocket support, and a persistent disk. Configure Supabase credentials on that service only, and point `GAME_STATE_FILE`, `SESSION_HISTORY_FILE`, `PENDING_RESULTS_FILE`, and `OPERATOR_TOKEN_FILE` to the persistent disk. Set `VITE_API_URL` in the Vercel project to that service's public HTTPS origin (no `/api` suffix), then rebuild the frontend. Both Socket.IO game state and leaderboard HTTP requests use this same origin. Leave the value empty for local use. A frontend deployment alone does not start the backend.
+For an online Vercel frontend with a separately hosted backend, run `node server.js --api-only` on one long-lived Node service with HTTPS, WebSocket support, and a persistent disk. Point `RESULTS_FILE`, `GAME_STATE_FILE`, `SESSION_HISTORY_FILE`, `PENDING_RESULTS_FILE`, and `OPERATOR_TOKEN_FILE` to the persistent disk. If opting into Supabase, configure its credentials on that service only. Set `VITE_API_URL` in the Vercel project to that service's public HTTPS origin (no `/api` suffix), then rebuild the frontend. Both Socket.IO game state and leaderboard HTTP requests use this same origin. Leave the value empty for local offline use. A frontend deployment alone does not start the backend.
 
 Configure the server with `.env.local`:
 
 ```dotenv
 OPERATOR_TOKEN=replace-with-a-long-random-value
 OPERATOR_TOKEN_FILE=.quiz-operator-token
-SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
-SUPABASE_TABLE=ABBOTT_QUIZ
+RESULTS_STORAGE=csv
+RESULTS_FILE=results.csv
+VITE_API_URL=
+PENDING_RESULTS_FILE=.quiz-pending-results.json
 GAME_STATE_FILE=.quiz-session.json
 SESSION_HISTORY_FILE=quiz-sessions.jsonl
 ANSWER_REVEAL_DURATION_MS=2000

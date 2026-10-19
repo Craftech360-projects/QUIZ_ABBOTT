@@ -37,8 +37,8 @@ const REGISTRATION_IDLE_TIMEOUT_MS = Number(process.env.REGISTRATION_IDLE_TIMEOU
 const isProduction = process.argv.includes('--production');
 const isApiOnly = process.argv.includes('--api-only');
 const resultsFilePath = path.resolve(process.env.RESULTS_FILE || path.join(__dirname, 'results.csv'));
-// CSV is an explicit offline/test mode, never an automatic Supabase fallback.
-const resultsStorage = process.env.RESULTS_STORAGE || 'supabase';
+// Keep event results local by default. Supabase requires an explicit opt-in.
+const resultsStorage = process.env.RESULTS_STORAGE || 'csv';
 if (!['supabase', 'csv'].includes(resultsStorage)) throw new Error('Invalid RESULTS_STORAGE');
 const pendingResultsFilePath = path.resolve(process.env.PENDING_RESULTS_FILE || path.join(__dirname, '.quiz-pending-results.json'));
 const gameStateFilePath = path.resolve(
@@ -1248,7 +1248,9 @@ function enqueueWrite(operation) {
 function sendStorageError(res, error) {
   console.error(error);
   res.status(500).json({
-    message: 'Could not read or write leaderboard results. Check the Supabase connection and try again.',
+    message: resultsStorage === 'csv'
+      ? 'Could not read or write leaderboard results. Check the local results file and available disk space, then try again.'
+      : 'Could not read or write leaderboard results. Check the Supabase connection and try again.',
   });
 }
 
@@ -1336,21 +1338,23 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`Game state: ${gameStateFilePath}`);
   console.log(`Session history: ${sessionHistoryFilePath}`);
   if (!configuredOperatorToken) console.log(`Operator token file: ${operatorTokenFilePath}`);
-  console.log(`SUPABASE_URL: ${supabaseEnvironmentStatus.SUPABASE_URL ? 'loaded' : 'MISSING'}`);
-  console.log(
-    `SUPABASE_SERVICE_ROLE_KEY: ${supabaseEnvironmentStatus.SUPABASE_SERVICE_ROLE_KEY ? 'loaded' : 'MISSING'}`,
-  );
-  console.log(`SUPABASE_TABLE: ${supabaseEnvironmentStatus.SUPABASE_TABLE ? 'loaded' : 'MISSING'}`);
   if (resultsStorage === 'csv') {
-    console.warn(`Results storage: explicit offline CSV mode at ${resultsFilePath}`);
-  } else if (hasSupabaseConfig()) {
-    const usesLegacyEnvironment = !supabaseEnvironmentStatus.SUPABASE_URL
-      || !supabaseEnvironmentStatus.SUPABASE_SERVICE_ROLE_KEY
-      || !supabaseEnvironmentStatus.SUPABASE_TABLE;
-    console.log(
-      `Results storage: Supabase table ${supabaseTable}${usesLegacyEnvironment ? ' (legacy environment fallback)' : ''}`,
-    );
+    console.log(`Results storage: local CSV at ${resultsFilePath} (Supabase disabled)`);
   } else {
-    console.error('Results storage: Supabase configuration is missing. Results will remain queued until configured.');
+    console.log(`SUPABASE_URL: ${supabaseEnvironmentStatus.SUPABASE_URL ? 'loaded' : 'MISSING'}`);
+    console.log(
+      `SUPABASE_SERVICE_ROLE_KEY: ${supabaseEnvironmentStatus.SUPABASE_SERVICE_ROLE_KEY ? 'loaded' : 'MISSING'}`,
+    );
+    console.log(`SUPABASE_TABLE: ${supabaseEnvironmentStatus.SUPABASE_TABLE ? 'loaded' : 'MISSING'}`);
+    if (hasSupabaseConfig()) {
+      const usesLegacyEnvironment = !supabaseEnvironmentStatus.SUPABASE_URL
+        || !supabaseEnvironmentStatus.SUPABASE_SERVICE_ROLE_KEY
+        || !supabaseEnvironmentStatus.SUPABASE_TABLE;
+      console.log(
+        `Results storage: Supabase table ${supabaseTable}${usesLegacyEnvironment ? ' (legacy environment fallback)' : ''}`,
+      );
+    } else {
+      console.error('Results storage: Supabase configuration is missing. Results will remain queued until configured.');
+    }
   }
 });
