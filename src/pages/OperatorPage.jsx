@@ -11,7 +11,7 @@ import RegistrationPage from './RegistrationPage.jsx';
 export default function OperatorPage() {
   const quiz = useQuizSocket({ operator: true });
   return <>
-    <EventMusic quizState={quiz.quizState} defaultEnabled />
+    <EventMusic quizState={quiz.quizState} audioOutput={quiz.audioOutput} defaultEnabled />
     <OperatorView {...quiz} />
   </>;
 }

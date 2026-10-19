@@ -9,9 +9,10 @@ import endTrack from '../../music/Game End.mp3';
 const correctAnswerTrack = '/ANSWER-TONE/Correct answer.mp3';
 const wrongAnswerTrack = '/ANSWER-TONE/Wrong answer.mp3';
 
-export default function EventMusic({ quizState, defaultEnabled = false }) {
+export default function EventMusic({ quizState, audioOutput, defaultEnabled = false }) {
   const audioRef = useRef(null);
   const [enabled, setEnabled] = useState(defaultEnabled);
+  const soundEnabled = enabled && audioOutput.isOwner;
   const [playbackIssue, setPlaybackIssue] = useState('');
   const [introducedQuestion, setIntroducedQuestion] = useState(null);
   const [playedFiftyFiftyQuestion, setPlayedFiftyFiftyQuestion] = useState(null);
@@ -57,6 +58,7 @@ export default function EventMusic({ quizState, defaultEnabled = false }) {
   useEffect(() => {
     const audio = audioRef.current;
     let disposed = false;
+    audio.muted = !soundEnabled;
     audio.pause();
     setPlaybackIssue('');
     if (track) {
@@ -75,7 +77,7 @@ export default function EventMusic({ quizState, defaultEnabled = false }) {
     }
 
     function play() {
-      if (!enabled || !track || !audio.paused) return;
+      if (!soundEnabled || !track || !audio.paused) return;
       audio.play().then(() => {
         if (!disposed) setPlaybackIssue('');
       }).catch((error) => {
@@ -99,18 +101,23 @@ export default function EventMusic({ quizState, defaultEnabled = false }) {
       document.removeEventListener('pointerdown', retryOnInteraction);
       document.removeEventListener('keydown', retryOnInteraction);
     };
-  }, [enabled, track, questionKey]);
+  }, [soundEnabled, track, questionKey]);
 
   function toggleSound() {
     const audio = audioRef.current;
-    if (enabled && !playbackIssue) {
+    if (soundEnabled && !playbackIssue) {
+      audio.muted = true;
       audio.pause();
       setEnabled(false);
+      audioOutput.release();
       return;
     }
     setEnabled(true);
+    audioOutput.claim();
     if (!track) return;
-    // Call play inside the button gesture, including when autoplay was blocked.
+    // Unlock this element inside the gesture, but keep it silent until the
+    // server transfers ownership and the previous screen stops its audio.
+    audio.muted = !audioOutput.isOwner;
     audio.play().then(() => setPlaybackIssue('')).catch((error) => {
       if (error.name !== 'AbortError') setPlaybackIssue(error.name === 'NotAllowedError' ? 'blocked' : 'error');
     });
@@ -119,13 +126,14 @@ export default function EventMusic({ quizState, defaultEnabled = false }) {
   return (
     <>
       <audio ref={audioRef} preload="auto" onEnded={() => {
+        if (!soundEnabled) return;
         if (track === questionTrack) setIntroducedQuestion(questionKey);
         if (track === fiftyFiftyTrack) setPlayedFiftyFiftyQuestion(questionKey);
         if (track === endTrack) setPlayedEndSession(resultKey);
       }} />
       {quizState && <button className="event-sound-toggle" type="button" onClick={toggleSound}
-        aria-pressed={enabled && !playbackIssue}>
-        {playbackIssue === 'error' ? 'Retry music' : !enabled || playbackIssue ? 'Enable sound' : 'Mute sound'}
+        disabled={!audioOutput.isConnected} aria-pressed={soundEnabled && !playbackIssue}>
+        {playbackIssue === 'error' ? 'Retry music' : !soundEnabled || playbackIssue ? 'Enable sound' : 'Mute sound'}
       </button>}
     </>
   );

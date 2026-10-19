@@ -7,6 +7,7 @@ export function useQuizSocket({ operator = false } = {}) {
   const pendingRef = useRef(false);
   const [quizState, setQuizState] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [audioOutputSocketId, setAudioOutputSocketId] = useState(null);
   const [isOperatorAuthorized, setIsOperatorAuthorized] = useState(!operator);
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState('');
@@ -26,6 +27,7 @@ export function useQuizSocket({ operator = false } = {}) {
 
     function handleDisconnect() {
       setIsConnected(false);
+      setAudioOutputSocketId(null);
     }
 
     function handleOperatorAccess(result) {
@@ -47,12 +49,21 @@ export function useQuizSocket({ operator = false } = {}) {
     socket.on('connect_error', () => setError('Reconnecting to the quiz server…'));
     socket.on('operator_access', handleOperatorAccess);
     socket.on('quiz_state', handleState);
+    socket.on('audio_output', (output) => setAudioOutputSocketId(output.socketId));
 
     return () => {
       socket.disconnect();
       socketRef.current = null;
     };
   }, [operator]);
+
+  const claimAudioOutput = useCallback(() => {
+    if (socketRef.current?.connected) socketRef.current.emit('claim_audio_output', {});
+  }, []);
+
+  const releaseAudioOutput = useCallback(() => {
+    if (socketRef.current?.connected) socketRef.current.emit('release_audio_output', {});
+  }, []);
 
   const emitAction = useCallback((eventName, payload) => {
     if (!socketRef.current?.connected || pendingRef.current) return;
@@ -154,6 +165,12 @@ export function useQuizSocket({ operator = false } = {}) {
   return {
     quizState,
     isConnected,
+    audioOutput: {
+      isConnected,
+      isOwner: isConnected && audioOutputSocketId === socketRef.current?.id,
+      claim: claimAudioOutput,
+      release: releaseAudioOutput,
+    },
     isOperatorAuthorized,
     isPending,
     error,

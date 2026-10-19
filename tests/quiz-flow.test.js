@@ -855,6 +855,58 @@ test('wrong answers show participation for levels 1–3 and congratulations for 
   }
 });
 
+test('only one quiz screen owns audio and enabling another screen transfers playback', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'quiz-audio-test-'));
+  const server = await startServer({
+    port: await getFreePort(), stateFile: path.join(directory, 'state.json'),
+    resultsFile: path.join(directory, 'results.csv'),
+    sessionHistoryFile: path.join(directory, 'sessions.jsonl'),
+  });
+  const screens = [];
+  t.after(async () => {
+    screens.forEach(({ socket }) => socket.close());
+    await stopServer(server.child);
+  });
+
+  async function screen(auth = {}) {
+    const connection = await connectSocket(server.baseUrl, auth);
+    screens.push(connection);
+    return connection.socket;
+  }
+
+  async function audioOwner(socket) {
+    const output = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Missing audio output state')), 3000);
+      socket.once('audio_output', (state) => { clearTimeout(timeout); resolve(state.socketId); });
+    });
+    socket.emit('request_state');
+    return output;
+  }
+
+  const operator = await screen({ operator: true });
+  const extraOperator = await screen({ operator: true });
+  const display = await screen();
+  for (const socket of [operator, extraOperator, display]) {
+    assert.equal(await audioOwner(socket), operator.id, 'Extra screens must not start another copy');
+  }
+  assert.equal((await emitAction(display, 'claim_audio_output')).ok, true);
+  for (const socket of [operator, extraOperator, display]) {
+    assert.equal(await audioOwner(socket), display.id, 'Enabling display audio must silence both operators');
+  }
+  await emitAction(operator, 'release_audio_output');
+  assert.equal(await audioOwner(display), display.id, 'A silent screen cannot mute the active output');
+  await emitAction(display, 'release_audio_output');
+  assert.equal(await audioOwner(operator), null);
+  await emitAction(extraOperator, 'claim_audio_output');
+  assert.equal(await audioOwner(operator), extraOperator.id);
+
+  const released = new Promise((resolve) => operator.once('audio_output', resolve));
+  extraOperator.close();
+  assert.deepEqual(await released, { socketId: null });
+  const replacement = await screen({ operator: true });
+  assert.equal(await audioOwner(display), replacement.id, 'A disconnected owner must not block later playback');
+});
+
 test('default and explicit CSV modes save locally without contacting configured Supabase', async (t) => {
   let cloudRequests = 0;
   const database = createHttpServer((req, res) => {

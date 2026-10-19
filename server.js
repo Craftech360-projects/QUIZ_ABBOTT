@@ -28,6 +28,12 @@ dotenv.config({
 const app = express();
 const httpServer = createServer(app);
 const io = new SocketIOServer(httpServer);
+// All quiz screens share one audible output, including tabs on other devices.
+let audioOutputSocketId = null;
+
+function broadcastAudioOutput() {
+  io.emit('audio_output', { socketId: audioOutputSocketId });
+}
 const PORT = Number(process.env.PORT || 3002);
 const QUESTIONS_PER_RUN = quizConfig.questionCount;
 const LIFELINE_TYPES = ['audiencePoll', 'phoneAFriend', 'fiftyFifty'];
@@ -806,9 +812,37 @@ io.on('connection', (socket) => {
     || tokenMatches(socket.handshake.auth?.operatorToken);
   socket.emit('operator_access', { authorized: socket.data.isOperator });
   socket.emit('quiz_state', createPublicQuizState());
+  if (socket.data.isOperator && audioOutputSocketId === null) {
+    audioOutputSocketId = socket.id;
+    broadcastAudioOutput();
+  } else {
+    socket.emit('audio_output', { socketId: audioOutputSocketId });
+  }
+
+  socket.on('claim_audio_output', (_, acknowledge) => {
+    audioOutputSocketId = socket.id;
+    broadcastAudioOutput();
+    acknowledge?.({ ok: true });
+  });
+
+  socket.on('release_audio_output', (_, acknowledge) => {
+    if (audioOutputSocketId === socket.id) {
+      audioOutputSocketId = null;
+      broadcastAudioOutput();
+    }
+    acknowledge?.({ ok: true });
+  });
+
+  socket.on('disconnect', () => {
+    if (audioOutputSocketId === socket.id) {
+      audioOutputSocketId = null;
+      broadcastAudioOutput();
+    }
+  });
 
   socket.on('request_state', () => {
     socket.emit('quiz_state', createPublicQuizState());
+    socket.emit('audio_output', { socketId: audioOutputSocketId });
   });
 
   // Reply only to the requesting operator; never broadcast the private answer.

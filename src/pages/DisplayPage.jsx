@@ -11,7 +11,7 @@ import RegistrationPage from './RegistrationPage.jsx';
 export default function DisplayPage() {
   const quiz = useQuizSocket();
   return <>
-    <EventMusic quizState={quiz.quizState} />
+    <EventMusic quizState={quiz.quizState} audioOutput={quiz.audioOutput} />
     <DisplayView {...quiz} />
   </>;
 }
